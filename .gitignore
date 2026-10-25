@@ -1,0 +1,10 @@
+.env
+.venv/
+.garminconnect/
+data/
+reports/
+feedback/
+__pycache__/
+# 문서/개인 기록은 저장소에 올리지 않음 (코드만 관리)
+RPE_기준표.md
+밸런스_루틴.md

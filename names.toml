@@ -1,0 +1,80 @@
+# 운동명 표시 매핑 / 부위 태그 / 맨몸 운동 목록.
+# 키는 Garmin 코드(대문자 + 밑줄). 리포트에 영어로 나온 이름은 "Face Pull" -> FACE_PULL 로 바꾸면 됩니다.
+# 코드를 정확히 알고 싶으면 data/raw/날짜/activity_ID/exercise_sets.json 의 category / name 값을 보세요.
+
+[settings]
+# 무게 단위: "auto"(1000 이상이면 g으로 판단) | "g" | "kg"
+weight_unit = "auto"
+
+# 무게가 0이어도 정상인 맨몸/시간 운동. 여기에 없는데 무게가 0이면 '무게?'(미입력)로 표시됩니다.
+bodyweight = [
+  "PULL_UP", "CHIN_UP", "PUSH_UP", "PLANK", "SIT_UP", "CRUNCH",
+  "HOLLOW_ROCK", "WIDE_STANCE_PLANK_WITH_LEG_LIFT", "STANDING_T_ROTATION_BALANCE",
+  "JUMP_ROPE", "BENCH_DIP", "SINGLE_LEG_DEADLIFT",
+]
+
+[exercises]
+BENCH_PRESS = "벤치프레스"
+PULL_UP = "풀업"
+PUSH_UP = "푸시업"
+SQUAT = "스쿼트"
+DEADLIFT = "데드리프트"
+LUNGE = "런지"
+SHOULDER_PRESS = "숄더프레스"
+FLYE = "플라이"
+ROW = "로우"
+REVERSE_GRIP_BARBELL_ROW = "리버스그립 바벨로우"
+LATERAL_RAISE = "레터럴 레이즈"
+DUMBBELL_LATERAL_RAISE = "덤벨 레터럴 레이즈"
+SEATED_REAR_LATERAL_RAISE = "시티드 리어 델트"
+FACE_PULL = "페이스풀"
+CABLE_EXTERNAL_ROTATION = "케이블 외회전"
+LEG_EXTENSIONS = "레그 익스텐션"
+LEG_CURL = "레그 컬"
+CURL = "컬"
+CROSS_BODY_DUMBBELL_HAMMER_CURL = "크로스바디 해머컬"
+TRICEPS_PRESSDOWN = "트라이셉스 푸시다운"
+TRICEPS_EXTENSION = "트라이셉스 익스텐션"
+BENCH_DIP = "벤치 딥스"
+SHRUG = "슈러그"
+BARBELL_HIP_THRUST_ON_FLOOR = "바벨 힙쓰러스트(바닥)"
+SINGLE_LEG_DEADLIFT = "싱글레그 데드리프트"
+HOLLOW_ROCK = "할로우 락"
+WIDE_STANCE_PLANK_WITH_LEG_LIFT = "와이드 플랭크 레그리프트"
+STANDING_T_ROTATION_BALANCE = "스탠딩 T 로테이션"
+JUMP_ROPE = "줄넘기"
+UNKNOWN = "미지정(Garmin Unknown)"
+
+# 부위 태그: 리포트 세트 표 아래에 '부위별 세트/반복/볼륨'을 합산해 보여 줍니다.
+# 하체 운동 다음날 일정(인터벌 등)을 정할 때 쓰는 기준입니다. 분류는 자유롭게 바꾸세요.
+[parts]
+SQUAT = "하체"
+DEADLIFT = "하체"
+LUNGE = "하체"
+LEG_EXTENSIONS = "하체"
+LEG_CURL = "하체"
+SINGLE_LEG_DEADLIFT = "하체"
+BARBELL_HIP_THRUST_ON_FLOOR = "하체"
+BENCH_PRESS = "가슴"
+FLYE = "가슴"
+PUSH_UP = "가슴"
+PULL_UP = "등"
+ROW = "등"
+REVERSE_GRIP_BARBELL_ROW = "등"
+SHOULDER_PRESS = "어깨"
+LATERAL_RAISE = "어깨"
+DUMBBELL_LATERAL_RAISE = "어깨"
+SEATED_REAR_LATERAL_RAISE = "어깨"
+FACE_PULL = "어깨"
+CABLE_EXTERNAL_ROTATION = "어깨"
+SHRUG = "어깨"
+CURL = "팔"
+CROSS_BODY_DUMBBELL_HAMMER_CURL = "팔"
+TRICEPS_PRESSDOWN = "팔"
+TRICEPS_EXTENSION = "팔"
+BENCH_DIP = "팔"
+PLANK = "코어"
+HOLLOW_ROCK = "코어"
+WIDE_STANCE_PLANK_WITH_LEG_LIFT = "코어"
+STANDING_T_ROTATION_BALANCE = "코어"
+JUMP_ROPE = "전신"

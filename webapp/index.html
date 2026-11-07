@@ -142,7 +142,7 @@ const QUESTIONS=["이 날 회복 상태와 운동 강도를 평가해 줘","내�
 const DEFAULT_AIS=[["Claude","https://claude.ai/new"],["ChatGPT","https://chatgpt.com/"],["Gemini","https://gemini.google.com/app"]];
 const WD="월화수목금토일";
 const S={fb:"",fbEdit:false,days:[],today:"",sel:null,md:"",tab:"split",dirty:new Set(),question:QUESTIONS[0],g:null,up:[],uploadFiles:new Map(),settings:null,
-  claudeW:Math.max(320,+store("claudeW")||460),openWeeks:new Set([].concat(loadJson("weeks",[]))),revealed:null,ais:loadAis(),popup:store("popup")!=="0"};
+  claudeW:Math.max(320,+store("claudeW")||460),openWeeks:new Set([].concat(loadJson("weeks",[]))),revealed:null,ais:loadAis(),popup:store("popup")!=="0",asFile:store("asfile")!=="0",plan:store("plan")==="1",hasPlan:false};
 
 /* ---------- utils ---------- */
 const $=s=>document.querySelector(s);
@@ -245,7 +245,7 @@ function replaceNote(md,id,text){
 
 /* ---------- load ---------- */
 async function loadDays(keepSel=true){
-  const d=await api("/api/days");S.days=d.days;S.today=d.today;
+  const d=await api("/api/days");S.days=d.days;S.today=d.today;S.hasPlan=!!d.hasPlan;
   if(!keepSel||!S.days.some(x=>x.date===S.sel))S.sel=S.days.length?S.days[0].date:null;
 }
 async function loadReport(){
@@ -337,6 +337,10 @@ function renderClaude(){
   <div class="row">${S.ais.map((a,i)=>`<button class="btn ${i===0?"primary":""}" data-ai="${i}" ${can?"":"disabled"}>${esc(a[0])}에 보내기</button>`).join("")}</div>
   <div class="row" style="align-items:center"><button class="btn small" data-act="copy-prompt" ${can?"":"disabled"}>복사만 하기</button>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input id="popup" type="checkbox" ${S.popup?"checked":""} style="width:18px;height:18px;margin:0">화면 옆 별도 창으로 열기</label></div>
+  <div class="row" style="align-items:center;gap:16px">
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input id="asfile" type="checkbox" ${S.asFile?"checked":""} style="width:18px;height:18px;margin:0">파일 하나로 만들어 탐색기에서 열기</label>
+    ${S.hasPlan?`<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input id="plan" type="checkbox" ${S.plan?"checked":""} style="width:18px;height:18px;margin:0">훈련 방향 포함</label>`:""}</div>
+  ${S.asFile?`<div class="muted" style="font-size:12px;line-height:1.6">AI 버튼을 누르면 <code>outbox/AI용_날짜.md</code>를 만들어 탐색기에서 선택해 두고, AI 창이 열립니다. 그 파일을 AI 창에 끌어다 놓고, 복사된 짧은 안내문을 붙여넣어 보내세요.</div>`:""}
   <div class="muted" style="font-size:12px;line-height:1.6">대부분의 AI 사이트는 다른 페이지 안에 넣는 것을 막아 두어서, 이 화면 안에 끼우지 않고 별도 창으로 엽니다. 창이 열리지 않으면 브라우저의 팝업 허용을 확인하세요.</div>
   <details><summary>보낼 내용 미리보기${can?` (${buildPrompt().length.toLocaleString()}자)`:""}</summary>${can?`<pre>${esc(buildPrompt())}</pre>`:""}</details>
   <details><summary>AI 목록 편집</summary>
@@ -348,6 +352,15 @@ async function openAi(i){
   const [name,url]=S.ais[i];
   const feat=S.popup?(()=>{const sw=screen.availWidth,sh=screen.availHeight,w=Math.min(760,Math.round(sw*0.45));return `popup=yes,noopener,noreferrer,width=${w},height=${sh},left=${(screen.availLeft||0)+sw-w},top=${screen.availTop||0}`})():"noopener,noreferrer";
   window.open(url,"_blank",feat);   // 클릭 직후에 열어야 팝업이 차단되지 않는다
+  if(S.asFile){
+    try{
+      const r=await api("/api/bundle",{date:S.sel,question:S.question,plan:S.plan&&S.hasPlan});
+      let hint="첨부한 파일의 질문에 답해 주세요.";
+      try{await copyText(hint)}catch(e){}
+      toast(r.revealed?`탐색기에서 AI용 파일이 선택되어 있습니다. ${name} 창에 끌어다 놓고 붙여넣기(안내문 복사됨)`:`파일을 만들었습니다: ${r.path}`);
+    }catch(e){toast(e.error||"파일을 만들지 못했습니다")}
+    return;
+  }
   try{await copyText(buildPrompt());toast(`복사했습니다. ${name} 창에 붙여넣으세요`)}catch(e){toast("복사하지 못했습니다. 미리보기에서 직접 선택해 복사하세요")}
 }
 function ssModal(ex){
@@ -577,6 +590,8 @@ document.addEventListener("change",ev=>{
   else if(t.id==="g2"&&S.g){S.g.end=t.value;refreshGarmin()}
   else if(t.id==="g3"&&S.g){S.g.redo=t.checked}
   else if(t.id==="fi"){handleFiles(t.files);t.value=""}
+  else if(t.id==="asfile"){S.asFile=t.checked;store("asfile",t.checked?"1":"0");renderClaude()}
+  else if(t.id==="plan"){S.plan=t.checked;store("plan",t.checked?"1":"0")}
   else if(t.id==="popup"){S.popup=t.checked;store("popup",t.checked?"1":"0")}
 });
 document.addEventListener("keydown",ev=>{if(ev.key==="Escape"&&!(S.g&&S.g.running))closeModal()});

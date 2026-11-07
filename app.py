@@ -44,6 +44,7 @@ CFG = {
     "reports": ROOT / "reports",
     "data": ROOT / "data",
     "feedback": ROOT / "feedback",
+    "outbox": ROOT / "outbox",
     "hosts": {"127.0.0.1", "localhost", "[::1]", "::1"},
 }
 
@@ -65,6 +66,24 @@ def report_path(day: str) -> Path:
 
 def feedback_path(day: str) -> Path:
     return CFG["feedback"] / f"{day}.md"
+
+
+def plan_path() -> Path:
+    return CFG["reports"].parent / "plan" / "방향.md"
+
+
+def reveal_in_file_manager(path: Path) -> bool:
+    """AI 창에 끌어다 놓을 수 있게 탐색기에서 파일을 선택한 채 연다. 실패하면 False."""
+    try:
+        if sys.platform == "win32":
+            subprocess.Popen(["explorer", f"/select,{path}"])  # noqa: S603,S607
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(path)])  # noqa: S603,S607
+        else:
+            subprocess.Popen(["xdg-open", str(path.parent)], stderr=subprocess.DEVNULL)  # noqa: S603,S607
+        return True
+    except OSError:
+        return False
 
 
 def uses_crlf(data: bytes) -> bool:
@@ -185,7 +204,8 @@ class ApiError(Exception):
 
 
 def api_days() -> dict:
-    return {"today": date.today().isoformat(), "days": list_days(), "reportsDir": str(CFG["reports"])}
+    return {"today": date.today().isoformat(), "days": list_days(), "reportsDir": str(CFG["reports"]),
+            "hasPlan": plan_path().is_file()}
 
 
 def api_report(day: str) -> dict:
@@ -228,6 +248,24 @@ def api_feedback_save(body: dict) -> dict:
             return {"ok": True, "text": ""}
         atomic_write(path, text + "\n")
     return {"ok": True, "text": text + "\n"}
+
+
+def api_bundle(body: dict) -> dict:
+    """AI에 첨부할 파일 하나(질문 + 훈련 방향 + 리포트)를 outbox에 만들고, 탐색기에서 선택해 연다."""
+    day, question, with_plan = body.get("date"), body.get("question", ""), bool(body.get("plan"))
+    if not valid_day(day) or not isinstance(question, str) or len(question) > 20000:
+        raise ApiError(400, "요청 형식이 올바르지 않습니다")
+    rp = report_path(day)
+    if not rp.is_file():
+        raise ApiError(404, "리포트가 없습니다")
+    parts = [question.strip() or "이 날 훈련을 평가해 줘", ""]
+    if with_plan and plan_path().is_file():
+        parts += ["## 현재 훈련 방향", plan_path().read_text(encoding="utf-8").strip(), ""]
+    parts += [f"## {day} 훈련 리포트 (메모 포함)", rp.read_text(encoding="utf-8").replace("\r\n", "\n").strip(), ""]
+    out = CFG["outbox"] / f"AI용_{day}.md"
+    with FILE_LOCK:
+        atomic_write(out, "\n".join(parts))
+    return {"ok": True, "path": str(out), "revealed": reveal_in_file_manager(out), "chars": len("\n".join(parts))}
 
 
 def api_save_note(body: dict) -> dict:
@@ -424,6 +462,7 @@ class Handler(BaseHTTPRequestHandler):
                 routes = {
                     "/api/notes": api_save_note,
                     "/api/feedback": api_feedback_save,
+                    "/api/bundle": api_bundle,
                     "/api/upload": api_upload,
                     "/api/report/rebuild": api_rebuild,
                     "/api/garmin/sync": api_sync,
@@ -456,6 +495,7 @@ def main() -> int:
     args = p.parse_args()
     CFG["reports"], CFG["data"] = args.reports.resolve(), args.data.resolve()
     CFG["feedback"] = CFG["reports"].parent / "feedback"
+    CFG["outbox"] = CFG["reports"].parent / "outbox"
     if args.host not in ("127.0.0.1", "localhost", "::1"):
         CFG["hosts"].add(args.host.lower())
         print("주의: 로컬 주소가 아닌 곳에 열었습니다. 이 앱에는 로그인 보호가 없습니다.", file=sys.stderr)

@@ -76,7 +76,11 @@ def reveal_in_file_manager(path: Path) -> bool:
     """AI 창에 끌어다 놓을 수 있게 탐색기에서 파일을 선택한 채 연다. 실패하면 False."""
     try:
         if sys.platform == "win32":
-            subprocess.Popen(["explorer", f"/select,{path}"])  # noqa: S603,S607
+            # 리스트로 넘기면 /select,"경로" 전체가 따옴표로 묶여 탐색기가 무시한다. 명령줄 문자열로 직접 만든다.
+            try:
+                subprocess.Popen(f'explorer /select,"{path}"')  # noqa: S603
+            except OSError:
+                os.startfile(path.parent)  # type: ignore[attr-defined]  # 선택은 못 해도 폴더는 연다
         elif sys.platform == "darwin":
             subprocess.Popen(["open", "-R", str(path)])  # noqa: S603,S607
         else:

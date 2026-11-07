@@ -357,7 +357,7 @@ async function openAi(i){
       const r=await api("/api/bundle",{date:S.sel,question:S.question,plan:S.plan&&S.hasPlan});
       let hint="첨부한 파일의 질문에 답해 주세요.";
       try{await copyText(hint)}catch(e){}
-      toast(r.revealed?`탐색기에서 AI용 파일이 선택되어 있습니다. ${name} 창에 끌어다 놓고 붙여넣기(안내문 복사됨)`:`파일을 만들었습니다: ${r.path}`);
+      toast(r.revealed?`탐색기에서 AI용 파일이 선택되어 있습니다(안 보이면 ${r.path}). ${name} 창에 끌어다 놓고 붙여넣기(안내문 복사됨)`:`파일을 만들었습니다: ${r.path}`);
     }catch(e){toast(e.error||"파일을 만들지 못했습니다")}
     return;
   }

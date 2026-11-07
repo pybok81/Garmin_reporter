@@ -59,3 +59,19 @@ Garmin 앱에서 수정한 운동 세트를 그대로 가져옵니다(휴식 세
 data/raw/YYYY-MM-DD/daily.json, activities.json, activity_<ID>/{summary,exercise_sets,hr_zones,splits}.json
 reports/YYYY-MM-DD.md
 ```
+
+## 웹앱 (브라우저로 보기·메모 편집·가져오기)
+
+```powershell
+python .\app.py            # http://127.0.0.1:8765 이 브라우저에서 열립니다
+python .\app.py --port 9000 --no-browser
+```
+
+- 표준 라이브러리만 씁니다. 가민 수집(`가민에서 가져오기`)에만 `garminconnect`가 필요합니다.
+- **왼쪽** 날짜별 파일 목록(주 단위 묶음, 메모 입력 현황) / **가운데** 리포트 보기·메모 편집 / **오른쪽** Claude에게 보내기.
+- 상단 탭으로 가운데에 보일 것을 고릅니다: 리포트 · 메모 편집 · Claude · 리포트+Claude.
+- **메모 편집**은 `reports/날짜.md`의 메모 마커 안쪽만 고칩니다(파일의 줄바꿈 형식 유지). `가민에서 가져오기`로 다시 받아도 메모는 유지됩니다.
+- **.md 파일 올리기**: 화면 어디에든 `2026-11-05.md`를 끌어다 놓으면 날짜별로 저장합니다. 같은 날짜가 있으면 물어보고, 덮어쓰면 기존 파일은 `reports/_backup/`에 남습니다.
+- **가민에서 가져오기**: 기간을 고르면 `garmin.py sync`를 실행합니다. 처음 한 번은 터미널에서 `python garmin.py export`로 로그인해 토큰을 만들어야 합니다(비밀번호·MFA는 앱에 입력하지 않음).
+- **Claude 연동**은 API 없이 `프롬프트 복사` → Claude 창에 붙여넣기 방식입니다(선택한 날의 리포트와 메모를 질문과 함께 복사).
+- 서버는 `127.0.0.1`에만 열립니다. 로그인 보호가 없으므로 다른 주소로 열 때는 주의하세요.

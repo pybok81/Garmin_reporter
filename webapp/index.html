@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>훈련 리포트</title>
+<style>
+:root{
+  --bg:#F3F5F7;--panel:#FFFFFF;--line:#DDE2E7;--line2:#E6EAEE;--fg:#1B1F23;--muted:#5B6570;
+  --accent:#0F6B63;--on-accent:#FFFFFF;--accent-bg:#E3F1EF;--accent-fg:#0A4F49;
+  --chip:#EEF1F4;--field:#F8F9FA;--warn-bg:#FFF3D6;--warn:#7A5200;--danger:#B42318;--ok:#0A4F49;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#121416;--panel:#1B1E21;--line:#2E3338;--line2:#262A2E;--fg:#E8EAEC;--muted:#9AA3AD;
+  --accent:#4FB5A8;--on-accent:#0B1F1D;--accent-bg:#17332F;--accent-fg:#8FD8CE;
+  --chip:#262B30;--field:#16191B;--warn-bg:#3A3014;--warn:#F0C866;--danger:#F97066;--ok:#8FD8CE;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 "Segoe UI","Malgun Gothic","Noto Sans KR",system-ui,sans-serif}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.muted{color:var(--muted)}
+.top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:baseline;gap:10px}
+.brand h1{margin:0;font-size:20px}
+.brand .sub{font-size:13px;color:var(--muted)}
+.actions,.tabs{display:flex;flex-wrap:wrap;gap:8px}
+.tabs{padding:12px 16px 0}
+.btn{min-height:44px;padding:0 16px;border:1px solid var(--line);border-radius:8px;background:var(--panel);font-weight:500}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.small{min-height:36px;padding:0 12px;font-size:13px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.tab{min-height:44px;padding:0 16px;border:1px solid var(--line);border-radius:8px;background:var(--panel);font-weight:500}
+.tab[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.cols{display:flex;flex-wrap:wrap;gap:16px;padding:16px;align-items:flex-start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.side{flex:1 1 240px;max-width:300px;min-width:220px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.side h2,.claude h2{margin:0;font-size:13px;color:var(--muted)}
+.week{margin:10px 0 2px;font-size:12px;color:var(--muted)}
+.day{width:100%;min-height:56px;padding:8px 12px;border:1px solid var(--line2);border-radius:8px;background:var(--panel);display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left}
+.day[aria-current="true"]{border-color:var(--accent);background:var(--accent-bg)}
+.day .t{display:block;font-weight:500}
+.day .s{display:block;font-size:12px;color:var(--muted)}
+.badge{font-size:12px;padding:2px 8px;border-radius:999px;background:var(--chip);white-space:nowrap}
+.badge.done{background:var(--accent-bg);color:var(--accent-fg)}
+.badge.warn{background:var(--warn-bg);color:var(--warn)}
+.main{flex:999 1 480px;min-width:0}
+.mhead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line2)}
+.mhead h2{margin:0;font-size:18px}
+.mbody{padding:6px 18px 22px}
+.empty{padding:40px 16px;margin:18px 0;border:1px dashed var(--line);border-radius:10px;text-align:center;color:var(--muted)}
+.rep h1{font-size:20px;margin:14px 0 6px}
+.rep h2{font-size:16px;margin:22px 0 6px;padding-bottom:4px;border-bottom:2px solid var(--accent)}
+.rep h3{font-size:15px;margin:20px 0 6px;color:var(--accent-fg)}
+.rep p{margin:6px 0}
+.rep ul{margin:6px 0;padding-left:1.3em}
+.rep blockquote{margin:8px 0;padding:6px 12px;border-left:4px solid var(--warn);background:var(--warn-bg);color:var(--warn)}
+.rep code{background:var(--chip);padding:1px 5px;border-radius:4px;font-size:.92em}
+.tw{overflow-x:auto;margin:8px 0}
+.rep table{border-collapse:collapse;width:100%;font-size:14px}
+.rep th,.rep td{border:1px solid var(--line);padding:5px 10px;text-align:left;white-space:nowrap}
+.rep td:last-child{white-space:normal}
+.rep th{background:var(--field)}
+.nb{padding:14px 0;border-bottom:1px solid var(--line2)}
+.nb h3{margin:0 0 10px;font-size:15px}
+.fr{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 10px;margin-bottom:8px}
+.fr label{flex:0 0 150px;font-size:13px;color:var(--muted);padding-top:8px}
+.fr textarea{flex:1 1 240px;min-height:40px;resize:vertical;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:hidden}
+.nbf{display:flex;align-items:center;gap:12px}
+.st{font-size:13px;color:var(--muted)}
+.st.ok{color:var(--ok)}.st.err{color:var(--danger)}
+.claude{flex:1 1 320px;max-width:380px;min-width:280px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.claude.wide{flex:999 1 480px;max-width:none}
+.claude textarea{width:100%;min-height:90px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);resize:vertical}
+.chips{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.chip{min-height:40px;padding:0 14px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:13px;text-align:left}
+.claude details{font-size:13px}
+.claude pre{max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;padding:8px;background:var(--field);border:1px solid var(--line2);border-radius:8px;font-size:12px}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+.overlay{position:fixed;inset:0;background:rgba(20,24,28,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
+.modal{width:100%;max-width:520px;max-height:100%;overflow:auto;background:var(--panel);border-radius:12px;padding:22px;display:flex;flex-direction:column;gap:16px}
+.modal h2{margin:0;font-size:18px}
+.modal .lab{font-size:13px;font-weight:700;color:var(--muted)}
+.modal .fld{display:flex;flex-direction:column;gap:6px;flex:1 1 180px}
+.modal>.fld{flex:none}
+.modal input[type=text],.modal input[type=email],.modal input[type=date]{min-height:44px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+.dz{display:flex;flex-direction:column;align-items:center;gap:10px;padding:32px 16px;border:2px dashed var(--line);border-radius:12px;background:var(--field);text-align:center}
+.dz.over{border-color:var(--accent);background:var(--accent-bg)}
+.log{max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;padding:8px 10px;border-radius:8px;background:var(--field);border:1px solid var(--line2);font-size:12px}
+.res{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.res .r{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line2);border-radius:8px}
+.note{padding:10px 12px;border-radius:8px;background:var(--field);font-size:13px}
+#drop{position:fixed;inset:0;background:rgba(15,107,99,.18);border:3px dashed var(--accent);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:var(--accent);z-index:20}
+#drop[hidden]{display:none}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:90vw;padding:10px 16px;border-radius:8px;background:#1B1F23;color:#fff;font-size:14px;z-index:30;opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.show{opacity:1}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><h1>훈련 리포트</h1><span class="sub">Garmin 일별 리포트 관리</span></div>
+  <div class="actions">
+    <button class="btn primary" data-act="open-garmin">가민에서 가져오기</button>
+    <button class="btn" data-act="open-upload">.md 파일 올리기</button>
+    <button class="btn" data-act="open-account">계정 설정</button>
+  </div>
+</header>
+<nav class="tabs" id="tabs" role="tablist" aria-label="보기 전환"></nav>
+<div class="cols">
+  <aside class="card side" id="side" aria-label="파일 목록"></aside>
+  <main class="card main" id="main"></main>
+  <aside class="card claude" id="claude" aria-label="Claude에게 보내기"></aside>
+</div>
+<div id="modal-root"></div>
+<div id="drop" hidden>.md 파일을 여기에 놓으세요</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const TABS=[["report","리포트"],["notes","메모 편집"],["claude","Claude"],["split","리포트 + Claude"]];
+const QUESTIONS=["이 날 회복 상태와 운동 강도를 평가해 줘","내일 운동 계획을 제안해 줘","메모에 적을 내용을 정리해 줘"];
+const WD="월화수목금토일";
+const S={days:[],today:"",sel:null,md:"",tab:"split",dirty:new Set(),question:QUESTIONS[0],g:null,up:[],uploadFiles:new Map(),settings:null};
+
+/* ---------- utils ---------- */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pad=n=>String(n).padStart(2,"0");
+const fmtLocal=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parseDay=s=>new Date(s+"T00:00:00");
+const addDays=(s,n)=>{const d=parseDay(s);d.setDate(d.getDate()+n);return fmtLocal(d)};
+const wdOf=s=>WD[(parseDay(s).getDay()+6)%7];
+const dayLabel=s=>`${s.slice(5)} (${wdOf(s)})`;
+function store(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}}
+let toastTimer;
+function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),3200)}
+async function api(path,body){
+  const opt=body===undefined?{}:{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)};
+  let res;try{res=await fetch(path,opt)}catch(e){throw {error:"서버에 연결할 수 없습니다. python app.py 가 실행 중인지 확인하세요"}}
+  let data={};try{data=await res.json()}catch(e){}
+  if(!res.ok)throw {status:res.status,...data,error:data.error||`오류 (${res.status})`};
+  return data;
+}
+function copyText(text){
+  if(navigator.clipboard&&window.isSecureContext)return navigator.clipboard.writeText(text);
+  return new Promise((ok,no)=>{const t=document.createElement("textarea");t.value=text;document.body.appendChild(t);t.select();
+    try{document.execCommand("copy")?ok():no()}catch(e){no(e)}t.remove()});
+}
+
+/* ---------- markdown (보기 전용, 표준 문법 일부) ---------- */
+function inline(s){
+  s=esc(s);
+  s=s.replace(/`([^`]+)`/g,"<code>$1</code>").replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>");
+  return s.replace(/(^|[\s(])_([^_]+)_(?=$|[\s).,])/g,"$1<em>$2</em>");
+}
+function mdTable(rows){
+  const cells=r=>r.trim().replace(/^\||\|$/g,"").split("|").map(c=>c.trim());
+  const head=cells(rows[0]),body=rows.slice(2).map(cells);
+  return `<div class="tw"><table><thead><tr>${head.map(h=>`<th>${inline(h)}</th>`).join("")}</tr></thead><tbody>${body.map(r=>`<tr>${r.map(c=>`<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+function renderMd(md){
+  md=md.replace("**메모** (마커 안쪽에 쓰세요)","**메모**").replace(/<!--[\s\S]*?-->/g,"\n");
+  const L=md.split("\n"),out=[];let i=0;
+  const block=/^(#{1,3} |>|\||- )/;
+  while(i<L.length){
+    const l=L[i];let m;
+    if(/^\s*$/.test(l)){i++;continue}
+    if(m=l.match(/^(#{1,3}) (.*)$/)){out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`);i++;continue}
+    if(l.startsWith(">")){const b=[];while(i<L.length&&L[i].startsWith(">")){b.push(L[i].replace(/^>\s?/,""));i++}out.push(`<blockquote>${inline(b.join(" "))}</blockquote>`);continue}
+    if(l.startsWith("|")){const r=[];while(i<L.length&&L[i].startsWith("|")){r.push(L[i]);i++}out.push(mdTable(r));continue}
+    if(l.startsWith("- ")){const b=[];while(i<L.length&&L[i].startsWith("- ")){b.push(L[i].slice(2));i++}
+      const items=b.filter(x=>!/^[^:]+:\s*$/.test(x));  // 비어 있는 메모 칸은 숨김
+      if(items.length)out.push(`<ul>${items.map(x=>`<li>${inline(x)}</li>`).join("")}</ul>`);continue}
+    const b=[];while(i<L.length&&!/^\s*$/.test(L[i])&&!block.test(L[i])){b.push(L[i]);i++}
+    out.push(`<p>${inline(b.join(" "))}</p>`);
+  }
+  return out.join("\n");
+}
+
+/* ---------- notes ---------- */
+function notesBlocks(md){
+  const out=[],re=/<!-- notes:([\w-]+) -->\n?([\s\S]*?)<!-- \/notes -->/g;let m;
+  while((m=re.exec(md))){
+    const id=m[1];let label;
+    if(id==="daily")label="하루 메모";
+    else{const h=md.match(new RegExp(`^### \\d+\\. (.+?) — (.*?)\\s*\\(ID ${id}\\)\\s*$`,"m"));
+      label=h?`${h[1]} — ${h[2]}`:`연결된 운동 없음 (ID ${id})`}
+    out.push({id,label,body:m[2]});
+  }
+  return out;
+}
+function parseFields(body){
+  const fields=[],extra=[];
+  for(const line of body.split("\n")){
+    const m=line.match(/^- ([^:\n]+):\s?(.*)$/);
+    if(m)fields.push({label:m[1],value:m[2]});else if(line.trim())extra.push(line);
+  }
+  return {fields,extra:extra.join("\n")};
+}
+function replaceNote(md,id,text){
+  const re=new RegExp(`<!-- notes:${id.replace(/[^\w-]/g,"")} -->\\n?[\\s\\S]*?<!-- \\/notes -->`);
+  return md.replace(re,()=>`<!-- notes:${id} -->\n${text}<!-- /notes -->`);
+}
+
+/* ---------- load ---------- */
+async function loadDays(keepSel=true){
+  const d=await api("/api/days");S.days=d.days;S.today=d.today;
+  if(!keepSel||!S.days.some(x=>x.date===S.sel))S.sel=S.days.length?S.days[0].date:null;
+}
+async function loadReport(){
+  if(!S.sel){S.md="";return}
+  try{S.md=(await api("/api/report?date="+S.sel)).markdown}catch(e){S.md="";toast(e.error)}
+}
+async function selectDay(day){
+  if(day===S.sel)return;
+  if(S.dirty.size&&!confirm("저장하지 않은 메모가 있습니다. 이동할까요?"))return;
+  S.dirty.clear();S.sel=day;await loadReport();render();
+}
+
+/* ---------- render ---------- */
+function render(){renderTabs();renderSide();renderMain();renderClaude();layout()}
+function layout(){
+  const t=S.tab;
+  $("#main").hidden=t==="claude";
+  $("#claude").hidden=!(t==="claude"||t==="split");
+  $("#claude").classList.toggle("wide",t==="claude");
+}
+function renderTabs(){
+  $("#tabs").innerHTML=TABS.map(([k,v])=>`<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${v}</button>`).join("");
+}
+function weekStart(d){const dt=parseDay(d);dt.setDate(dt.getDate()-((dt.getDay()+6)%7));return fmtLocal(dt)}
+function renderSide(){
+  let html=`<h2>파일</h2>`;
+  if(!S.days.length)html+=`<div class="muted" style="font-size:13px;line-height:1.6;padding:8px 0">아직 리포트가 없습니다.<br>가민에서 가져오기나 .md 파일 올리기로 추가하세요.</div>`;
+  let cur="";
+  for(const d of S.days){
+    const wk=weekStart(d.date);
+    if(wk!==cur){cur=wk;html+=`<div class="week">${wk.slice(5)} ~ ${addDays(wk,6).slice(5)} 주</div>`}
+    let badge="";
+    if(d.snapshot)badge=`<span class="badge warn">오늘</span>`;
+    else if(!d.workouts)badge=`<span class="badge">휴식</span>`;
+    else badge=`<span class="badge ${d.notesFilled===d.notesTotal?"done":""}">메모 ${d.notesFilled}/${d.notesTotal}</span>`;
+    html+=`<button class="day" data-day="${d.date}" aria-current="${d.date===S.sel}"><span><span class="t">${dayLabel(d.date)}</span><span class="s">${d.workouts?esc(d.types.join(" · ")):"운동 없음"}</span></span>${badge}</button>`;
+  }
+  $("#side").innerHTML=html;
+}
+function curInfo(){return S.days.find(d=>d.date===S.sel)}
+function renderMain(){
+  const el=$("#main");
+  if(!S.sel){el.innerHTML=`<div class="mbody"><div class="empty">표시할 리포트가 없습니다.<br>왼쪽 위 버튼으로 가져오거나 .md 파일을 끌어다 놓으세요.</div></div>`;return}
+  const info=curInfo();
+  const rebuild=info&&info.hasRaw?`<button class="btn small" data-act="rebuild">리포트 다시 만들기</button>`:"";
+  let body;
+  if(S.tab==="notes"){
+    const blocks=notesBlocks(S.md);
+    body=blocks.length?blocks.map((b,i)=>{
+      const {fields,extra}=parseFields(b.body);
+      return `<section class="nb" data-id="${esc(b.id)}"><h3>${esc(b.label)}</h3>`+
+        fields.map((f,j)=>`<div class="fr"><label for="f${i}_${j}">${esc(f.label)}</label><textarea id="f${i}_${j}" rows="1" data-label="${esc(f.label)}">${esc(f.value)}</textarea></div>`).join("")+
+        (extra?`<div class="fr"><label>기타</label><textarea data-extra rows="2">${esc(extra)}</textarea></div>`:"")+
+        `<div class="nbf"><button class="btn primary small" data-act="save-note" disabled>저장</button><span class="st"></span></div></section>`;
+    }).join(""):`<div class="empty">이 리포트에는 메모 칸이 없습니다.</div>`;
+  }else body=`<div class="rep">${renderMd(S.md)}</div>`;
+  el.innerHTML=`<div class="mhead"><div><h2>${dayLabel(S.sel)}</h2><span class="muted" style="font-size:12px">${S.sel}.md</span></div><div class="row">${rebuild}</div></div><div class="mbody">${body}</div>`;
+  el.querySelectorAll(".fr textarea").forEach(autosize);
+}
+function autosize(t){t.style.height="auto";t.style.height=Math.max(40,t.scrollHeight+2)+"px"}
+function buildPrompt(){
+  return `${S.question.trim()}\n\n아래는 ${S.sel} 훈련 리포트입니다.\n\n---\n${S.md}`;
+}
+function renderClaude(){
+  const el=$("#claude");
+  const can=!!S.sel;
+  el.innerHTML=`<h2>Claude에게 보내기</h2>
+  <div class="muted" style="font-size:13px;line-height:1.6">${can?`<span class="badge">${dayLabel(S.sel)} 리포트 + 메모</span> 를 질문과 함께 복사해서 Claude 창에 붙여넣습니다.`:"리포트를 먼저 선택하세요."}</div>
+  <div class="chips">${QUESTIONS.map((q,i)=>`<button class="chip" data-q="${i}">${esc(q)}</button>`).join("")}</div>
+  <label for="q" class="muted" style="font-size:13px">질문</label>
+  <textarea id="q">${esc(S.question)}</textarea>
+  <div class="row"><button class="btn primary" data-act="copy-prompt" ${can?"":"disabled"}>프롬프트 복사</button><a class="btn" style="display:inline-flex;align-items:center;text-decoration:none" href="https://claude.ai/new" target="_blank" rel="noopener noreferrer">Claude 열기</a></div>
+  <details><summary>보낼 내용 미리보기${can?` (${buildPrompt().length.toLocaleString()}자)`:""}</summary>${can?`<pre>${esc(buildPrompt())}</pre>`:""}</details>`;
+}
+
+/* ---------- modals ---------- */
+function openModal(html){
+  const root=$("#modal-root");
+  root.innerHTML=`<div class="overlay" data-overlay><div class="modal" role="dialog" aria-modal="true">${html}</div></div>`;
+  const f=root.querySelector("input,button");if(f)f.focus();
+}
+function closeModal(){$("#modal-root").innerHTML="";S.g&&(S.g.running||(S.g=null))}
+function rangePresets(){
+  const t=S.today||fmtLocal(new Date()),dow=(parseDay(t).getDay()+6)%7;
+  return [["어제",addDays(t,-1),addDays(t,-1)],["최근 3일",addDays(t,-2),t],["이번 주",addDays(t,-dow),t]];
+}
+function garminModal(){
+  const g=S.g,t=S.today;
+  const n=(parseDay(g.end)-parseDay(g.start))/864e5+1;
+  const okRange=Number.isFinite(n)&&n>=1&&n<=31;
+  const chips=rangePresets().map(([l,a,b])=>`<button class="btn small" data-preset="${a}|${b}" ${g.start===a&&g.end===b?'aria-pressed="true" style="border-color:var(--accent);background:var(--accent-bg)"':""}>${l}</button>`).join("");
+  let result="";
+  if(g.need){result=`<div class="note">가민 로그인이 아직 안 되어 있습니다. <strong>터미널에서 한 번만</strong> 아래 명령을 실행해 로그인하세요 (비밀번호와 MFA 코드는 여기에 입력하지 않습니다). 성공하면 토큰이 저장되어 다음부터는 이 화면에서 바로 가져옵니다.<pre class="log" style="margin-top:8px">${esc(g.need)}</pre></div>`}
+  if(g.msg)result+=`<div class="note">${esc(g.msg)}</div>`;
+  if(g.results)result+=g.results.map(r=>`<div><strong style="color:${r.ok?"var(--ok)":"var(--danger)"}">${r.ok?"완료":"실패"}</strong> · ${esc(r.range)}<pre class="log">${esc(r.output||"(출력 없음)")}</pre></div>`).join("");
+  return `<h2>가민에서 가져오기</h2>
+  <div class="fld"><span class="lab">기간 빠르게 선택</span><div class="row">${chips}</div></div>
+  <div class="row"><div class="fld"><label for="g1" class="lab">시작일</label><input id="g1" type="date" value="${g.start}" ${g.running?"disabled":""}></div>
+  <div class="fld"><label for="g2" class="lab">종료일</label><input id="g2" type="date" value="${g.end}" ${g.running?"disabled":""}></div></div>
+  <div class="note" style="font-weight:500">${okRange?`${g.start} ~ ${g.end} · ${n}일`:(n>31?"한 번에 31일까지만 가능합니다":"종료일이 시작일보다 빠릅니다")}</div>
+  <label style="display:flex;gap:10px;align-items:flex-start;font-size:14px"><input id="g3" type="checkbox" ${g.redo?"checked":""} ${g.running?"disabled":""} style="width:20px;height:20px;margin:2px 0 0"><span>이미 가져온 날짜도 다시 받기 <span class="muted">(가민 수치만 갱신, 메모는 유지. 오늘은 항상 다시 받습니다)</span></span></label>
+  ${result}
+  <div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">닫기</button><button class="btn primary" data-act="run-garmin" ${okRange&&!g.running?"":"disabled"}>${g.running?"가져오는 중… (창을 닫지 마세요)":"가져오기 시작"}</button></div>`;
+}
+function openGarmin(){
+  const t=S.today||fmtLocal(new Date());
+  S.g={start:addDays(t,-2),end:t,redo:false,running:false};
+  openModal(garminModal());
+}
+function refreshGarmin(){const m=$("#modal-root .modal");if(m&&S.g)m.innerHTML=garminModal()}
+async function runGarmin(){
+  const g=S.g;g.running=true;g.need=g.msg=g.results=null;refreshGarmin();
+  try{
+    const r=await api("/api/garmin/sync",{start:g.start,end:g.end,redo:g.redo});
+    g.results=r.results;g.msg=r.message||null;
+    if(r.results&&r.results.length){await loadDays();if(r.ok){S.sel=g.end;S.dirty.clear();await loadReport()}}
+  }catch(e){
+    if(e.code==="need_login")g.need=e.command;else g.msg=e.error;
+  }
+  g.running=false;refreshGarmin();render();
+}
+function uploadModal(){
+  const rows=S.up.map((u,i)=>{
+    let s;
+    if(u.state==="ok")s=`<span style="color:var(--ok)">저장됨</span> → ${u.date}${u.backup?` <span class="muted">(기존 파일은 _backup에 보관)</span>`:""}`;
+    else if(u.state==="exists")s=`<span style="color:var(--warn)">${u.date} 리포트가 이미 있습니다 (수정: ${esc(u.mtime)})</span> <button class="btn small" data-overwrite="${i}">덮어쓰기</button>`;
+    else s=`<span style="color:var(--danger)">${esc(u.error)}</span>`;
+    return `<div class="r"><strong>${esc(u.name)}</strong>${s}</div>`;
+  }).join("");
+  return `<h2>.md 파일 올리기</h2>
+  <div class="dz" id="dz"><strong>여기로 .md 파일을 끌어다 놓으세요</strong><span class="muted" style="font-size:13px">여러 파일을 한 번에 놓을 수 있습니다</span>
+  <button class="btn" data-act="pick-files">파일 선택</button><input id="fi" type="file" accept=".md,text/markdown,text/plain" multiple hidden></div>
+  <div class="muted" style="font-size:13px;line-height:1.6">파일 이름이 2026-11-05.md 같은 날짜 형식이면 날짜별로 분류됩니다. 같은 날짜가 있으면 덮어쓰기 전에 물어보고, 덮어쓰면 기존 파일은 reports/_backup 에 남습니다.</div>
+  ${rows?`<div class="res">${rows}</div>`:""}
+  <div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">닫기</button></div>`;
+}
+function openUpload(){S.up=[];openModal(uploadModal())}
+function refreshUpload(){const m=$("#modal-root .modal");if(m&&m.querySelector("#dz"))m.innerHTML=uploadModal()}
+async function sendFile(file,overwrite,idx){
+  let content;try{content=await file.text()}catch(e){return {name:file.name,state:"err",error:"파일을 읽지 못했습니다"}}
+  S.uploadFiles.set(file.name,{name:file.name,content});
+  return postUpload(file.name,content,overwrite);
+}
+async function postUpload(name,content,overwrite){
+  try{
+    const r=await api("/api/upload",{name,content,overwrite});
+    if(r.ok)return {name,state:"ok",date:r.date,backup:r.backup};
+    return {name,state:"exists",date:r.date,mtime:r.mtime};
+  }catch(e){return {name,state:"err",error:e.error}}
+}
+async function handleFiles(files){
+  files=[...files];if(!files.length)return;
+  if(!$("#modal-root .modal #dz")){S.up=[];openModal(uploadModal())}
+  for(const f of files){
+    if(!/\.md$/i.test(f.name)){S.up.push({name:f.name,state:"err",error:".md 파일만 올릴 수 있습니다"});continue}
+    S.up.push(await sendFile(f,false));
+  }
+  refreshUpload();
+  await afterUpload();
+}
+async function afterUpload(){
+  const okDates=S.up.filter(u=>u.state==="ok").map(u=>u.date).sort();
+  await loadDays();
+  if(okDates.length&&!S.dirty.size){S.sel=okDates[okDates.length-1];await loadReport()}
+  render();
+}
+async function overwrite(i){
+  const u=S.up[i];const f=S.uploadFiles.get(u.name);if(!f)return;
+  S.up[i]=await postUpload(f.name,f.content,true);refreshUpload();await afterUpload();
+}
+async function accountModal(){
+  openModal(`<h2>계정 설정</h2><div class="muted">불러오는 중…</div>`);
+  try{S.settings=await api("/api/settings")}catch(e){openModal(`<h2>계정 설정</h2><div class="note">${esc(e.error)}</div><div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">닫기</button></div>`);return}
+  const s=S.settings;
+  openModal(`<h2>계정 설정</h2>
+  <section style="display:flex;flex-direction:column;gap:10px"><span class="lab">Garmin Connect</span>
+    <div class="fld"><label for="ae" class="lab" style="font-weight:400">이메일</label><input id="ae" type="email" autocomplete="off" value="${esc(s.email)}"></div>
+    <div class="note">로그인 상태: <strong>${s.tokenExists?"토큰 있음 (비밀번호 없이 가져오기 가능)":"토큰 없음"}</strong><br>
+    비밀번호는 이 앱에 입력하거나 저장하지 않습니다. 처음 한 번만 터미널에서 <code>${esc(s.loginCommand)}</code> 를 실행해 로그인하세요 (MFA 포함). 토큰이 만료되면 같은 명령을 다시 실행합니다.</div></section>
+  <section style="display:flex;flex-direction:column;gap:6px"><span class="lab">저장 위치</span>
+    <div class="note">리포트: ${esc(s.reportsDir)}<br>가민 원본: ${esc(s.dataDir)}<br><span class="muted">폴더 변경은 <code>python app.py --reports 경로 --data 경로</code> 로 지정합니다.</span></div></section>
+  <div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">닫기</button><button class="btn primary" data-act="save-account">이메일 저장</button></div>`);
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click",async ev=>{
+  const t=ev.target.closest("[data-act],[data-tab],[data-day],[data-q],[data-preset],[data-overwrite],[data-overlay]");
+  if(!t)return;
+  if(t.dataset.overlay!==undefined){if(ev.target===t&&!(S.g&&S.g.running))closeModal();return}
+  if(t.dataset.tab){
+    if(S.tab==="notes"&&t.dataset.tab!=="notes"&&S.dirty.size&&!confirm("저장하지 않은 메모가 있습니다. 이동할까요?"))return;
+    if(t.dataset.tab!=="notes")S.dirty.clear();
+    S.tab=t.dataset.tab;store("tab",S.tab);render();return;
+  }
+  if(t.dataset.day)return selectDay(t.dataset.day);
+  if(t.dataset.q){S.question=QUESTIONS[+t.dataset.q];renderClaude();return}
+  if(t.dataset.preset){const [a,b]=t.dataset.preset.split("|");S.g.start=a;S.g.end=b;refreshGarmin();return}
+  if(t.dataset.overwrite)return overwrite(+t.dataset.overwrite);
+  switch(t.dataset.act){
+    case"open-garmin":return openGarmin();
+    case"open-upload":return openUpload();
+    case"open-account":return accountModal();
+    case"close":return closeModal();
+    case"run-garmin":return runGarmin();
+    case"pick-files":return $("#fi").click();
+    case"copy-prompt":
+      try{await copyText(buildPrompt());toast("복사했습니다. Claude 창에 붙여넣으세요")}catch(e){toast("복사하지 못했습니다. 미리보기에서 직접 선택해 복사하세요")}
+      return;
+    case"rebuild":
+      t.disabled=true;
+      try{await api("/api/report/rebuild",{date:S.sel});await loadDays();await loadReport();render();toast("가민 원본으로 리포트를 다시 만들었습니다 (메모는 유지)")}
+      catch(e){toast(e.error);t.disabled=false}
+      return;
+    case"save-note":{
+      const sec=t.closest(".nb"),id=sec.dataset.id,st=sec.querySelector(".st");
+      const lines=[...sec.querySelectorAll("textarea[data-label]")].map(x=>{const v=x.value.replace(/\s*\n\s*/g," ").trim();return `- ${x.dataset.label}:${v?" "+v:""}`});
+      const ex=sec.querySelector("textarea[data-extra]");if(ex&&ex.value.trim())lines.push(...ex.value.replace(/\r/g,"").split("\n"));
+      const text=lines.join("\n")+"\n";
+      t.disabled=true;st.className="st";st.textContent="저장 중…";
+      try{
+        await api("/api/notes",{date:S.sel,id,text});
+        S.md=replaceNote(S.md,id,text);S.dirty.delete(id);
+        st.className="st ok";st.textContent="저장했습니다";
+        loadDays().then(renderSide);
+      }catch(e){st.className="st err";st.textContent=e.error;t.disabled=false}
+      return;
+    }
+    case"save-account":{
+      try{S.settings=await api("/api/settings",{email:$("#ae").value});toast("이메일을 저장했습니다");closeModal()}catch(e){toast(e.error)}
+      return;
+    }
+  }
+});
+document.addEventListener("input",ev=>{
+  const t=ev.target;
+  if(t.id==="q"){S.question=t.value;const d=$("#claude details");if(d){const p=d.querySelector("pre");if(p){p.textContent=buildPrompt();d.querySelector("summary").textContent=`보낼 내용 미리보기 (${buildPrompt().length.toLocaleString()}자)`}}return}
+  if(t.closest(".nb")&&t.matches("textarea")){
+    autosize(t);const sec=t.closest(".nb");S.dirty.add(sec.dataset.id);
+    const b=sec.querySelector('[data-act="save-note"]');b.disabled=false;
+    const st=sec.querySelector(".st");st.className="st";st.textContent="저장 안 됨";
+  }
+});
+document.addEventListener("change",ev=>{
+  const t=ev.target;
+  if(t.id==="g1"&&S.g){S.g.start=t.value;refreshGarmin()}
+  else if(t.id==="g2"&&S.g){S.g.end=t.value;refreshGarmin()}
+  else if(t.id==="g3"&&S.g){S.g.redo=t.checked}
+  else if(t.id==="fi"){handleFiles(t.files);t.value=""}
+});
+document.addEventListener("keydown",ev=>{if(ev.key==="Escape"&&!(S.g&&S.g.running))closeModal()});
+window.addEventListener("unhandledrejection",ev=>{const r=ev.reason;toast("오류: "+((r&&(r.error||r.message))||"알 수 없는 오류"))});
+window.addEventListener("beforeunload",ev=>{if(S.dirty.size){ev.preventDefault();ev.returnValue=""}});
+
+/* 파일 드래그 앤 드롭: 화면 어디에 놓아도 된다 */
+let dragDepth=0;
+const hasFiles=ev=>ev.dataTransfer&&[...(ev.dataTransfer.types||[])].includes("Files");
+window.addEventListener("dragenter",ev=>{if(hasFiles(ev)){dragDepth++;$("#drop").hidden=false}});
+window.addEventListener("dragleave",ev=>{if(hasFiles(ev)){dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)$("#drop").hidden=true}});
+window.addEventListener("dragover",ev=>{if(hasFiles(ev))ev.preventDefault()});
+window.addEventListener("drop",ev=>{if(!hasFiles(ev))return;ev.preventDefault();dragDepth=0;$("#drop").hidden=true;handleFiles(ev.dataTransfer.files)});
+
+/* ---------- start ---------- */
+(async()=>{
+  const saved=store("tab");if(TABS.some(t=>t[0]===saved))S.tab=saved;
+  try{await loadDays(false);await loadReport()}catch(e){toast(e.error)}
+  render();
+})();
+</script>
+</body>
+</html>

@@ -43,6 +43,7 @@ SYNC_LOCK = threading.Lock()   # 가민 수집은 한 번에 하나만
 CFG = {
     "reports": ROOT / "reports",
     "data": ROOT / "data",
+    "feedback": ROOT / "feedback",
     "hosts": {"127.0.0.1", "localhost", "[::1]", "::1"},
 }
 
@@ -60,6 +61,10 @@ def valid_day(value: object) -> bool:
 
 def report_path(day: str) -> Path:
     return CFG["reports"] / f"{day}.md"
+
+
+def feedback_path(day: str) -> Path:
+    return CFG["feedback"] / f"{day}.md"
 
 
 def uses_crlf(data: bytes) -> bool:
@@ -93,6 +98,7 @@ def day_info(path: Path) -> dict:
         "notesFilled": sum(1 for i in ids if note_filled(notes.get(i, ""))),
         "snapshot": "오늘 스냅샷" in text,
         "hasRaw": (CFG["data"] / "raw" / day).is_dir(),
+        "hasFeedback": feedback_path(day).is_file(),
     }
 
 
@@ -189,6 +195,39 @@ def api_report(day: str) -> dict:
     if not path.exists():
         raise ApiError(404, "리포트가 없습니다")
     return {"date": day, "markdown": path.read_text(encoding="utf-8")}
+
+
+def api_feedback_get(day: str) -> dict:
+    if not valid_day(day):
+        raise ApiError(400, "날짜 형식이 올바르지 않습니다")
+    path = feedback_path(day)
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    return {"date": day, "text": text}
+
+
+def api_feedback_save(body: dict) -> dict:
+    """mode=set: 통째로 저장(빈 문자열이면 파일 삭제) / mode=append: 기존 내용 뒤에 구분선과 함께 추가."""
+    day, text, mode = body.get("date"), body.get("text"), body.get("mode", "set")
+    if not valid_day(day) or not isinstance(text, str) or mode not in ("set", "append"):
+        raise ApiError(400, "요청 형식이 올바르지 않습니다")
+    if len(text) > 2 * 1024 * 1024:
+        raise ApiError(413, "내용이 너무 큽니다 (2MB 초과)")
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+    with FILE_LOCK:
+        path = feedback_path(day)
+        old = path.read_text(encoding="utf-8").strip("\n") if path.is_file() else ""
+        if mode == "append":
+            if not text:
+                raise ApiError(400, "추가할 내용이 없습니다")
+            if text in old:
+                return {"ok": True, "text": old + "\n", "duplicate": True}
+            text = f"{old}\n\n---\n\n{text}" if old else text
+        if not text.strip():
+            if path.is_file():
+                path.unlink()
+            return {"ok": True, "text": ""}
+        atomic_write(path, text + "\n")
+    return {"ok": True, "text": text + "\n"}
 
 
 def api_save_note(body: dict) -> dict:
@@ -374,6 +413,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(200, api_days())
                 elif url.path == "/api/report":
                     self._json(200, api_report((q.get("date") or [""])[0]))
+                elif url.path == "/api/feedback":
+                    self._json(200, api_feedback_get((q.get("date") or [""])[0]))
                 elif url.path == "/api/settings":
                     self._json(200, api_settings_get())
                 else:
@@ -382,6 +423,7 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._read_json()
                 routes = {
                     "/api/notes": api_save_note,
+                    "/api/feedback": api_feedback_save,
                     "/api/upload": api_upload,
                     "/api/report/rebuild": api_rebuild,
                     "/api/garmin/sync": api_sync,
@@ -413,6 +455,7 @@ def main() -> int:
     p.add_argument("--no-browser", action="store_true", help="브라우저를 자동으로 열지 않음")
     args = p.parse_args()
     CFG["reports"], CFG["data"] = args.reports.resolve(), args.data.resolve()
+    CFG["feedback"] = CFG["reports"].parent / "feedback"
     if args.host not in ("127.0.0.1", "localhost", "::1"):
         CFG["hosts"].add(args.host.lower())
         print("주의: 로컬 주소가 아닌 곳에 열었습니다. 이 앱에는 로그인 보호가 없습니다.", file=sys.stderr)

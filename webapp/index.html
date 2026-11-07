@@ -72,6 +72,13 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{
 .fr{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 10px;margin-bottom:8px}
 .fr label{flex:0 0 150px;font-size:13px;color:var(--muted);padding-top:8px}
 .fr textarea{flex:1 1 240px;min-height:40px;resize:vertical;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:hidden}
+.fb{margin-top:28px;padding-top:6px;border-top:2px solid var(--accent)}
+.fbh{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0 6px}
+.fbh h2{border:0;margin:0;padding:0}
+.fbe{width:100%;min-height:220px;resize:vertical;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--field);font:inherit;font-size:13px;line-height:1.5}
+.fbb{background:var(--field);border:1px solid var(--line);border-radius:10px;padding:4px 16px 8px}
+.rep ol{margin:6px 0;padding-left:1.5em}
+.rep hr{border:0;border-top:1px dashed var(--line);margin:16px 0}
 .nbf{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
 .st{font-size:13px;color:var(--muted)}
 .st.ok{color:var(--ok)}.st.err{color:var(--danger)}
@@ -134,7 +141,7 @@ const TABS=[["report","리포트"],["claude","AI"],["split","리포트 + AI"]];
 const QUESTIONS=["이 날 회복 상태와 운동 강도를 평가해 줘","내일 운동 계획을 제안해 줘","메모에 적을 내용을 정리해 줘"];
 const DEFAULT_AIS=[["Claude","https://claude.ai/new"],["ChatGPT","https://chatgpt.com/"],["Gemini","https://gemini.google.com/app"]];
 const WD="월화수목금토일";
-const S={days:[],today:"",sel:null,md:"",tab:"split",dirty:new Set(),question:QUESTIONS[0],g:null,up:[],uploadFiles:new Map(),settings:null,
+const S={fb:"",fbEdit:false,days:[],today:"",sel:null,md:"",tab:"split",dirty:new Set(),question:QUESTIONS[0],g:null,up:[],uploadFiles:new Map(),settings:null,
   claudeW:Math.max(320,+store("claudeW")||460),openWeeks:new Set([].concat(loadJson("weeks",[]))),revealed:null,ais:loadAis(),popup:store("popup")!=="0"};
 
 /* ---------- utils ---------- */
@@ -178,13 +185,15 @@ function mdTable(rows){
 function renderMd(md){
   md=md.replace("**메모** (마커 안쪽에 쓰세요)","").replace(/<!--[\s\S]*?-->/g,"\n");
   const L=md.split("\n"),out=[];let i=0;
-  const block=/^(#{1,3} |>|\||- )/;
+  const block=/^(#{1,3} |>|\||- |\d+\. |-{3,}\s*$)/;
   while(i<L.length){
     const l=L[i];let m;
     if(/^\s*$/.test(l)){i++;continue}
     if(m=l.match(/^(#{1,3}) (.*)$/)){out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`);i++;continue}
     if(l.startsWith(">")){const b=[];while(i<L.length&&L[i].startsWith(">")){b.push(L[i].replace(/^>\s?/,""));i++}out.push(`<blockquote>${inline(b.join(" "))}</blockquote>`);continue}
     if(l.startsWith("|")){const r=[];while(i<L.length&&L[i].startsWith("|")){r.push(L[i]);i++}out.push(mdTable(r));continue}
+    if(/^-{3,}\s*$/.test(l)){out.push("<hr>");i++;continue}
+    if(/^\d+\. /.test(l)){const b=[];while(i<L.length&&/^\d+\. /.test(L[i])){b.push(L[i].replace(/^\d+\. /,""));i++}out.push(`<ol>${b.map(x=>`<li>${inline(x)}</li>`).join("")}</ol>`);continue}
     if(l.startsWith("- ")){const b=[];while(i<L.length&&L[i].startsWith("- ")){b.push(L[i].slice(2));i++}
       const items=b.filter(x=>!/^[^:]+:\s*$/.test(x));  // 비어 있는 메모 칸은 숨김
       if(items.length)out.push(`<ul>${items.map(x=>`<li>${inline(x)}</li>`).join("")}</ul>`);continue}
@@ -240,8 +249,10 @@ async function loadDays(keepSel=true){
   if(!keepSel||!S.days.some(x=>x.date===S.sel))S.sel=S.days.length?S.days[0].date:null;
 }
 async function loadReport(){
+  S.fbEdit=false;S.fb="";
   if(!S.sel){S.md="";return}
   try{S.md=(await api("/api/report?date="+S.sel)).markdown}catch(e){S.md="";toast(e.error)}
+  try{S.fb=(await api("/api/feedback?date="+S.sel)).text}catch(e){S.fb=""}
 }
 async function selectDay(day){
   if(day===S.sel)return;
@@ -284,7 +295,7 @@ function renderSide(){
     if(d.snapshot)badge=`<span class="badge warn">오늘</span>`;
     else if(!d.workouts)badge=`<span class="badge">휴식</span>`;
     else badge=`<span class="badge ${d.notesFilled===d.notesTotal?"done":""}">메모 ${d.notesFilled}/${d.notesTotal}</span>`;
-    return `<button class="day" data-day="${d.date}" aria-current="${d.date===S.sel}"><span><span class="t">${dayLabel(d.date)}</span><span class="s">${d.workouts?esc(d.types.join(" · ")):"운동 없음"}</span></span>${badge}</button>`;
+    return `<button class="day" data-day="${d.date}" aria-current="${d.date===S.sel}"><span><span class="t">${dayLabel(d.date)}</span><span class="s">${d.workouts?esc(d.types.join(" · ")):"운동 없음"}</span></span><span class="row" style="gap:6px">${d.hasFeedback?`<span class="badge" title="AI 피드백 있음">피드백</span>`:""}${badge}</span></button>`;
   };
   const weeks=[],map=new Map();
   for(const d of S.days){const wk=weekStart(d.date);if(!map.has(wk)){map.set(wk,[]);weeks.push(wk)}map.get(wk).push(d)}
@@ -297,12 +308,17 @@ function renderSide(){
 }
 function setWeek(wk,open){open?S.openWeeks.add(wk):S.openWeeks.delete(wk);store("weeks",JSON.stringify([...S.openWeeks]))}
 function curInfo(){return S.days.find(d=>d.date===S.sel)}
+function feedbackBlock(){
+  if(S.fbEdit)return `<section class="fb"><div class="fbh"><h2>AI 피드백 편집</h2></div><textarea class="fbe" id="fbt" placeholder="AI 답변을 붙여넣으세요 (여러 개면 --- 줄로 구분)">${esc(S.fb)}</textarea><div class="nbf" style="margin-top:8px"><button class="btn primary small" data-act="fb-save">저장</button><button class="btn small" data-act="fb-cancel">취소</button><span class="muted" style="font-size:12px">내용을 모두 지우고 저장하면 피드백 파일이 삭제됩니다</span></div></section>`;
+  if(!S.fb.trim())return `<section class="fb"><div class="fbh"><h2>AI 피드백</h2><button class="btn small" data-act="fb-edit">피드백 붙여넣기</button></div><div class="muted" style="font-size:13px">아직 없습니다. 받은 피드백 .md 파일을 화면에 끌어다 놓거나 붙여넣으세요.</div></section>`;
+  return `<section class="fb"><div class="fbh"><h2>AI 피드백</h2><button class="btn small" data-act="fb-edit">편집</button></div><div class="fbb">${renderMd(S.fb)}</div></section>`;
+}
 function renderMain(){
   const el=$("#main");
   if(!S.sel){el.innerHTML=`<div class="mbody"><div class="empty">표시할 리포트가 없습니다.<br>왼쪽 위 버튼으로 가져오거나 .md 파일을 끌어다 놓으세요.</div></div>`;return}
   const info=curInfo();
   const rebuild=info&&info.hasRaw?`<button class="btn small" data-act="rebuild">리포트 다시 만들기</button>`:"";
-  const body=`<div class="rep">${renderReportWithNotes(S.md)}</div>`;
+  const body=`<div class="rep">${renderReportWithNotes(S.md)}${feedbackBlock()}</div>`;
   el.innerHTML=`<div class="mhead"><div><h2>${dayLabel(S.sel)}</h2><span class="muted" style="font-size:12px">${S.sel}.md</span></div><div class="row">${rebuild}</div></div><div class="mbody">${body}</div>`;
   el.querySelectorAll(".fr textarea").forEach(autosize);
 }
@@ -401,7 +417,8 @@ async function runGarmin(){
 function uploadModal(){
   const rows=S.up.map((u,i)=>{
     let s;
-    if(u.state==="ok")s=`<span style="color:var(--ok)">저장됨</span> → ${u.date}${u.backup?` <span class="muted">(기존 파일은 _backup에 보관)</span>`:""}`;
+    if(u.state==="ok"&&u.fb)s=`<span style="color:var(--ok)">${u.dup?"이미 있는 피드백입니다":"피드백으로 추가됨"}</span> → ${u.date}`;
+    else if(u.state==="ok")s=`<span style="color:var(--ok)">저장됨</span> → ${u.date}${u.backup?` <span class="muted">(기존 파일은 _backup에 보관)</span>`:""}`;
     else if(u.state==="exists")s=`<span style="color:var(--warn)">${u.date} 리포트가 이미 있습니다 (수정: ${esc(u.mtime)})</span> <button class="btn small" data-overwrite="${i}">덮어쓰기</button>`;
     else s=`<span style="color:var(--danger)">${esc(u.error)}</span>`;
     return `<div class="r"><strong>${esc(u.name)}</strong>${s}</div>`;
@@ -409,7 +426,7 @@ function uploadModal(){
   return `<h2>.md 파일 올리기</h2>
   <div class="dz" id="dz"><strong>여기로 .md 파일을 끌어다 놓으세요</strong><span class="muted" style="font-size:13px">여러 파일을 한 번에 놓을 수 있습니다</span>
   <button class="btn" data-act="pick-files">파일 선택</button><input id="fi" type="file" accept=".md,text/markdown,text/plain" multiple hidden></div>
-  <div class="muted" style="font-size:13px;line-height:1.6">파일 이름이 2026-11-05.md 같은 날짜 형식이면 날짜별로 분류됩니다. 같은 날짜가 있으면 덮어쓰기 전에 물어보고, 덮어쓰면 기존 파일은 reports/_backup 에 남습니다.</div>
+  <div class="muted" style="font-size:13px;line-height:1.6">파일 이름이 2026-11-05.md 같은 날짜 형식이면 날짜별로 분류됩니다. 리포트가 아닌 .md는 AI 피드백으로 보고, 파일 이름의 날짜(없으면 지금 보는 날짜)의 리포트 아래에 붙입니다. 같은 날짜의 리포트가 있으면 덮어쓰기 전에 물어보고, 덮어쓰면 기존 파일은 reports/_backup 에 남습니다.</div>
   ${rows?`<div class="res">${rows}</div>`:""}
   <div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">닫기</button></div>`;
 }
@@ -432,10 +449,20 @@ async function handleFiles(files){
   if(!$("#modal-root .modal #dz")){S.up=[];openModal(uploadModal())}
   for(const f of files){
     if(!/\.md$/i.test(f.name)){S.up.push({name:f.name,state:"err",error:".md 파일만 올릴 수 있습니다"});continue}
-    S.up.push(await sendFile(f,false));
+    let txt="";try{txt=await f.text()}catch(e){S.up.push({name:f.name,state:"err",error:"파일을 읽지 못했습니다"});continue}
+    const first=(txt.split(/\r?\n/).find(x=>x.trim())||"");
+    if(/^#\s.*훈련 리포트/.test(first)){S.up.push(await sendFile(f,false));continue}
+    S.up.push(await addFeedbackFile(f.name,txt));
   }
   refreshUpload();
   await afterUpload();
+}
+async function addFeedbackFile(name,txt){
+  const m=name.match(/(\d{4}-\d{2}-\d{2})/);const day=m?m[1]:S.sel;
+  if(!day)return {name,state:"err",error:"피드백을 붙일 날짜를 알 수 없습니다. 날짜를 고르거나 파일 이름에 2026-11-05 형식을 넣으세요"};
+  if(!S.days.some(d=>d.date===day))return {name,state:"err",error:`${day} 리포트가 없습니다. 리포트를 먼저 가져오세요`};
+  try{const r=await api("/api/feedback",{date:day,text:txt,mode:"append"});return {name,state:"ok",date:day,fb:true,dup:!!r.duplicate}}
+  catch(e){return {name,state:"err",error:e.error}}
 }
 async function afterUpload(){
   const okDates=S.up.filter(u=>u.state==="ok").map(u=>u.date).sort();
@@ -518,6 +545,14 @@ document.addEventListener("click",async ev=>{
         st.className="st ok";st.textContent="저장했습니다";
         loadDays().then(renderSide);
       }catch(e){st.className="st err";st.textContent=e.error;t.disabled=false}
+      return;
+    }
+    case"fb-edit":S.fbEdit=true;renderMain();$("#fbt")&&$("#fbt").focus();return;
+    case"fb-cancel":S.fbEdit=false;renderMain();return;
+    case"fb-save":{
+      t.disabled=true;
+      try{const r=await api("/api/feedback",{date:S.sel,text:$("#fbt").value,mode:"set"});S.fb=r.text;S.fbEdit=false;await loadDays();render();toast(r.text?"피드백을 저장했습니다":"피드백을 삭제했습니다")}
+      catch(e){toast(e.error);t.disabled=false}
       return;
     }
     case"save-account":{

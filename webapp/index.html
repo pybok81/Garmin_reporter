@@ -37,7 +37,12 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px}
 .side{flex:1 1 240px;max-width:300px;min-width:220px;padding:14px;display:flex;flex-direction:column;gap:8px}
 .side h2,.claude h2{margin:0;font-size:13px;color:var(--muted)}
-.week{margin:10px 0 2px;font-size:12px;color:var(--muted)}
+.weekh{width:100%;min-height:44px;margin-top:6px;padding:6px 10px;border:1px solid transparent;border-radius:8px;background:transparent;display:flex;align-items:center;gap:8px;text-align:left;font-size:13px;font-weight:600}
+.weekh:hover{background:var(--chip)}
+.weekh .wk-s{margin-left:auto;font-weight:400;font-size:12px}
+.chev{width:7px;height:7px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(-45deg);transition:transform .15s;flex:none}
+.weekh[aria-expanded="true"] .chev{transform:rotate(45deg)}
+.weekb{display:flex;flex-direction:column;gap:6px}
 .day{width:100%;min-height:56px;padding:8px 12px;border:1px solid var(--line2);border-radius:8px;background:var(--panel);display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left}
 .day[aria-current="true"]{border-color:var(--accent);background:var(--accent-bg)}
 .day .t{display:block;font-weight:500}
@@ -62,21 +67,25 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{
 .rep th,.rep td{border:1px solid var(--line);padding:5px 10px;text-align:left;white-space:nowrap}
 .rep td:last-child{white-space:normal}
 .rep th{background:var(--field)}
-.nb{padding:14px 0;border-bottom:1px solid var(--line2)}
-.nb h3{margin:0 0 10px;font-size:15px}
+.nb{margin:10px 0 18px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--field)}
+.nbt{margin:0 0 8px;font-size:12px;font-weight:700;color:var(--muted)}
 .fr{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 10px;margin-bottom:8px}
 .fr label{flex:0 0 150px;font-size:13px;color:var(--muted);padding-top:8px}
 .fr textarea{flex:1 1 240px;min-height:40px;resize:vertical;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:hidden}
-.nbf{display:flex;align-items:center;gap:12px}
+.nbf{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
 .st{font-size:13px;color:var(--muted)}
 .st.ok{color:var(--ok)}.st.err{color:var(--danger)}
-.claude{flex:1 1 320px;max-width:380px;min-width:280px;padding:14px;display:flex;flex-direction:column;gap:12px}
-.claude.wide{flex:999 1 480px;max-width:none}
-.claude textarea{width:100%;min-height:90px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);resize:vertical}
+.claude{flex:0 0 var(--cw,460px);min-width:0;padding:14px;display:flex;flex-direction:column;gap:12px;position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto}
+.claude.wide{flex:1 1 480px}
+.claude textarea{width:100%;min-height:150px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);resize:vertical}
+.claude textarea#ais{min-height:90px;font-size:13px}
+.split{flex:0 0 12px;margin:0 -8px;align-self:stretch;cursor:col-resize;position:relative;touch-action:none}
+.split::after{content:"";position:absolute;left:5px;top:0;bottom:0;width:2px;border-radius:1px;background:var(--line)}
+.split:hover::after,.split:focus-visible::after,.split.drag::after{background:var(--accent);width:3px;left:4.5px}
 .chips{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
 .chip{min-height:40px;padding:0 14px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:13px;text-align:left}
 .claude details{font-size:13px}
-.claude pre{max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;padding:8px;background:var(--field);border:1px solid var(--line2);border-radius:8px;font-size:12px}
+.claude pre{max-height:40vh;overflow:auto;white-space:pre-wrap;word-break:break-word;padding:8px;background:var(--field);border:1px solid var(--line2);border-radius:8px;font-size:12px}
 .row{display:flex;flex-wrap:wrap;gap:8px}
 .overlay{position:fixed;inset:0;background:rgba(20,24,28,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
 .modal{width:100%;max-width:520px;max-height:100%;overflow:auto;background:var(--panel);border-radius:12px;padding:22px;display:flex;flex-direction:column;gap:16px}
@@ -95,6 +104,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{
 #drop[hidden]{display:none}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:90vw;padding:10px 16px;border-radius:8px;background:#1B1F23;color:#fff;font-size:14px;z-index:30;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.show{opacity:1}
+@media (max-width:900px){.claude{flex:1 1 100%!important;position:static;max-height:none}.split{display:none!important}}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -111,7 +121,8 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{
 <div class="cols">
   <aside class="card side" id="side" aria-label="파일 목록"></aside>
   <main class="card main" id="main"></main>
-  <aside class="card claude" id="claude" aria-label="Claude에게 보내기"></aside>
+  <div class="split" id="split" role="separator" aria-orientation="vertical" aria-label="AI 창 너비 조절 (좌우 방향키)" tabindex="0"></div>
+  <aside class="card claude" id="claude" aria-label="AI에게 보내기"></aside>
 </div>
 <div id="modal-root"></div>
 <div id="drop" hidden>.md 파일을 여기에 놓으세요</div>
@@ -119,10 +130,12 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{
 
 <script>
 "use strict";
-const TABS=[["report","리포트"],["notes","메모 편집"],["claude","Claude"],["split","리포트 + Claude"]];
+const TABS=[["report","리포트"],["claude","AI"],["split","리포트 + AI"]];
 const QUESTIONS=["이 날 회복 상태와 운동 강도를 평가해 줘","내일 운동 계획을 제안해 줘","메모에 적을 내용을 정리해 줘"];
+const DEFAULT_AIS=[["Claude","https://claude.ai/new"],["ChatGPT","https://chatgpt.com/"],["Gemini","https://gemini.google.com/app"]];
 const WD="월화수목금토일";
-const S={days:[],today:"",sel:null,md:"",tab:"split",dirty:new Set(),question:QUESTIONS[0],g:null,up:[],uploadFiles:new Map(),settings:null};
+const S={days:[],today:"",sel:null,md:"",tab:"split",dirty:new Set(),question:QUESTIONS[0],g:null,up:[],uploadFiles:new Map(),settings:null,
+  claudeW:Math.max(320,+store("claudeW")||460),openWeeks:new Set([].concat(loadJson("weeks",[]))),revealed:null,ais:loadAis(),popup:store("popup")!=="0"};
 
 /* ---------- utils ---------- */
 const $=s=>document.querySelector(s);
@@ -134,6 +147,8 @@ const addDays=(s,n)=>{const d=parseDay(s);d.setDate(d.getDate()+n);return fmtLoc
 const wdOf=s=>WD[(parseDay(s).getDay()+6)%7];
 const dayLabel=s=>`${s.slice(5)} (${wdOf(s)})`;
 function store(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}}
+function loadJson(k,d){try{const v=JSON.parse(store(k)||"null");return v===null?d:v}catch(e){return d}}
+function loadAis(){const v=loadJson("ais",null);return Array.isArray(v)&&v.length&&v.every(x=>Array.isArray(x)&&typeof x[0]==="string"&&/^https:\/\//.test(x[1]))?v:DEFAULT_AIS.map(x=>[...x])}
 let toastTimer;
 function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),3200)}
 async function api(path,body){
@@ -161,7 +176,7 @@ function mdTable(rows){
   return `<div class="tw"><table><thead><tr>${head.map(h=>`<th>${inline(h)}</th>`).join("")}</tr></thead><tbody>${body.map(r=>`<tr>${r.map(c=>`<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 function renderMd(md){
-  md=md.replace("**메모** (마커 안쪽에 쓰세요)","**메모**").replace(/<!--[\s\S]*?-->/g,"\n");
+  md=md.replace("**메모** (마커 안쪽에 쓰세요)","").replace(/<!--[\s\S]*?-->/g,"\n");
   const L=md.split("\n"),out=[];let i=0;
   const block=/^(#{1,3} |>|\||- )/;
   while(i<L.length){
@@ -180,16 +195,31 @@ function renderMd(md){
 }
 
 /* ---------- notes ---------- */
-function notesBlocks(md){
-  const out=[],re=/<!-- notes:([\w-]+) -->\n?([\s\S]*?)<!-- \/notes -->/g;let m;
-  while((m=re.exec(md))){
-    const id=m[1];let label;
-    if(id==="daily")label="하루 메모";
-    else{const h=md.match(new RegExp(`^### \\d+\\. (.+?) — (.*?)\\s*\\(ID ${id}\\)\\s*$`,"m"));
-      label=h?`${h[1]} — ${h[2]}`:`연결된 운동 없음 (ID ${id})`}
-    out.push({id,label,body:m[2]});
+function exercisesIn(before){
+  const k=before.indexOf("**웨이트 세트**");if(k<0)return [];
+  const names=[];
+  for(const line of before.slice(k).split("\n")){
+    const m=line.match(/^\|\s*([^|]+?)\s*\|/);
+    if(m&&!/^[-\s]+$/.test(m[1])&&m[1]!=="운동"&&!m[1].startsWith("**"))names.push(m[1]);
   }
-  return out;
+  return [...new Set(names)];
+}
+function noteForm(id,body,before,i){
+  const {fields,extra}=parseFields(body),ex=exercisesIn(before);
+  return `<section class="nb" data-id="${esc(id)}" data-ex="${esc(JSON.stringify(ex))}"><div class="nbt">메모 (바로 편집 · 저장하면 .md에 반영)</div>`+
+    fields.map((f,j)=>`<div class="fr"><label for="f${i}_${j}">${esc(f.label)}</label><textarea id="f${i}_${j}" rows="1" data-label="${esc(f.label)}">${esc(f.value)}</textarea></div>`).join("")+
+    (extra?`<div class="fr"><label>기타</label><textarea data-extra rows="2">${esc(extra)}</textarea></div>`:"")+
+    `<div class="nbf"><button class="btn primary small" data-act="save-note" disabled>저장</button>${ex.length?`<button class="btn small" data-act="open-ss">슈퍼세트 표시</button>`:""}<span class="st"></span></div></section>`;
+}
+function renderReportWithNotes(md){
+  const re=/<!-- notes:([\w-]+) -->\n?([\s\S]*?)<!-- \/notes -->/g;
+  let last=0,m,html="",i=0;
+  while((m=re.exec(md))){
+    const before=md.slice(last,m.index);
+    html+=renderMd(before)+noteForm(m[1],m[2],before,i++);
+    last=re.lastIndex;
+  }
+  return html+renderMd(md.slice(last));
 }
 function parseFields(body){
   const fields=[],extra=[];
@@ -226,6 +256,19 @@ function layout(){
   $("#main").hidden=t==="claude";
   $("#claude").hidden=!(t==="claude"||t==="split");
   $("#claude").classList.toggle("wide",t==="claude");
+  $("#claude").style.setProperty("--cw",S.claudeW+"px");
+  $("#split").hidden=t!=="split";
+}
+function initSplit(){
+  const sp=$("#split");
+  const set=w=>{S.claudeW=Math.max(320,Math.min(Math.round(window.innerWidth*0.7),Math.round(w)));$("#claude").style.setProperty("--cw",S.claudeW+"px")};
+  sp.addEventListener("pointerdown",e=>{sp.setPointerCapture(e.pointerId);sp.classList.add("drag")});
+  sp.addEventListener("pointermove",e=>{if(sp.hasPointerCapture(e.pointerId))set($(".cols").getBoundingClientRect().right-16-e.clientX-6)});
+  const end=e=>{sp.classList.remove("drag");store("claudeW",String(S.claudeW))};
+  sp.addEventListener("pointerup",end);sp.addEventListener("pointercancel",end);
+  sp.addEventListener("keydown",e=>{
+    if(e.key==="ArrowLeft"||e.key==="ArrowRight"){e.preventDefault();set(S.claudeW+(e.key==="ArrowLeft"?32:-32));store("claudeW",String(S.claudeW))}
+  });
 }
 function renderTabs(){
   $("#tabs").innerHTML=TABS.map(([k,v])=>`<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${v}</button>`).join("");
@@ -234,35 +277,32 @@ function weekStart(d){const dt=parseDay(d);dt.setDate(dt.getDate()-((dt.getDay()
 function renderSide(){
   let html=`<h2>파일</h2>`;
   if(!S.days.length)html+=`<div class="muted" style="font-size:13px;line-height:1.6;padding:8px 0">아직 리포트가 없습니다.<br>가민에서 가져오기나 .md 파일 올리기로 추가하세요.</div>`;
-  let cur="";
-  for(const d of S.days){
-    const wk=weekStart(d.date);
-    if(wk!==cur){cur=wk;html+=`<div class="week">${wk.slice(5)} ~ ${addDays(wk,6).slice(5)} 주</div>`}
+  if(S.days.length&&store("weeks")===null&&!S.openWeeks.size)S.openWeeks.add(weekStart(S.days[0].date));
+  if(S.sel&&S.sel!==S.revealed){S.revealed=S.sel;S.openWeeks.add(weekStart(S.sel))}   // 선택이 바뀌면 그 주를 펼친다
+  const dayBtn=d=>{
     let badge="";
     if(d.snapshot)badge=`<span class="badge warn">오늘</span>`;
     else if(!d.workouts)badge=`<span class="badge">휴식</span>`;
     else badge=`<span class="badge ${d.notesFilled===d.notesTotal?"done":""}">메모 ${d.notesFilled}/${d.notesTotal}</span>`;
-    html+=`<button class="day" data-day="${d.date}" aria-current="${d.date===S.sel}"><span><span class="t">${dayLabel(d.date)}</span><span class="s">${d.workouts?esc(d.types.join(" · ")):"운동 없음"}</span></span>${badge}</button>`;
+    return `<button class="day" data-day="${d.date}" aria-current="${d.date===S.sel}"><span><span class="t">${dayLabel(d.date)}</span><span class="s">${d.workouts?esc(d.types.join(" · ")):"운동 없음"}</span></span>${badge}</button>`;
+  };
+  const weeks=[],map=new Map();
+  for(const d of S.days){const wk=weekStart(d.date);if(!map.has(wk)){map.set(wk,[]);weeks.push(wk)}map.get(wk).push(d)}
+  for(const wk of weeks){
+    const list=map.get(wk),open=S.openWeeks.has(wk),todo=list.reduce((a,d)=>a+(d.notesTotal-d.notesFilled),0);
+    html+=`<button class="weekh" data-week="${wk}" aria-expanded="${open}"><span class="chev" aria-hidden="true"></span><span>${wk.slice(5)} ~ ${addDays(wk,6).slice(5)} 주</span><span class="muted wk-s">${list.length}일${todo?` · 메모 ${todo}개 남음`:""}</span></button>`;
+    if(open)html+=`<div class="weekb">${list.map(dayBtn).join("")}</div>`;
   }
   $("#side").innerHTML=html;
 }
+function setWeek(wk,open){open?S.openWeeks.add(wk):S.openWeeks.delete(wk);store("weeks",JSON.stringify([...S.openWeeks]))}
 function curInfo(){return S.days.find(d=>d.date===S.sel)}
 function renderMain(){
   const el=$("#main");
   if(!S.sel){el.innerHTML=`<div class="mbody"><div class="empty">표시할 리포트가 없습니다.<br>왼쪽 위 버튼으로 가져오거나 .md 파일을 끌어다 놓으세요.</div></div>`;return}
   const info=curInfo();
   const rebuild=info&&info.hasRaw?`<button class="btn small" data-act="rebuild">리포트 다시 만들기</button>`:"";
-  let body;
-  if(S.tab==="notes"){
-    const blocks=notesBlocks(S.md);
-    body=blocks.length?blocks.map((b,i)=>{
-      const {fields,extra}=parseFields(b.body);
-      return `<section class="nb" data-id="${esc(b.id)}"><h3>${esc(b.label)}</h3>`+
-        fields.map((f,j)=>`<div class="fr"><label for="f${i}_${j}">${esc(f.label)}</label><textarea id="f${i}_${j}" rows="1" data-label="${esc(f.label)}">${esc(f.value)}</textarea></div>`).join("")+
-        (extra?`<div class="fr"><label>기타</label><textarea data-extra rows="2">${esc(extra)}</textarea></div>`:"")+
-        `<div class="nbf"><button class="btn primary small" data-act="save-note" disabled>저장</button><span class="st"></span></div></section>`;
-    }).join(""):`<div class="empty">이 리포트에는 메모 칸이 없습니다.</div>`;
-  }else body=`<div class="rep">${renderMd(S.md)}</div>`;
+  const body=`<div class="rep">${renderReportWithNotes(S.md)}</div>`;
   el.innerHTML=`<div class="mhead"><div><h2>${dayLabel(S.sel)}</h2><span class="muted" style="font-size:12px">${S.sel}.md</span></div><div class="row">${rebuild}</div></div><div class="mbody">${body}</div>`;
   el.querySelectorAll(".fr textarea").forEach(autosize);
 }
@@ -273,13 +313,43 @@ function buildPrompt(){
 function renderClaude(){
   const el=$("#claude");
   const can=!!S.sel;
-  el.innerHTML=`<h2>Claude에게 보내기</h2>
-  <div class="muted" style="font-size:13px;line-height:1.6">${can?`<span class="badge">${dayLabel(S.sel)} 리포트 + 메모</span> 를 질문과 함께 복사해서 Claude 창에 붙여넣습니다.`:"리포트를 먼저 선택하세요."}</div>
+  el.innerHTML=`<h2>AI에게 보내기</h2>
+  <div class="muted" style="font-size:13px;line-height:1.6">${can?`<span class="badge">${dayLabel(S.sel)} 리포트 + 저장된 메모</span> 를 질문과 함께 복사한 뒤 AI 창을 엽니다. 붙여넣기만 하면 됩니다.`:"리포트를 먼저 선택하세요."}</div>
   <div class="chips">${QUESTIONS.map((q,i)=>`<button class="chip" data-q="${i}">${esc(q)}</button>`).join("")}</div>
   <label for="q" class="muted" style="font-size:13px">질문</label>
   <textarea id="q">${esc(S.question)}</textarea>
-  <div class="row"><button class="btn primary" data-act="copy-prompt" ${can?"":"disabled"}>프롬프트 복사</button><a class="btn" style="display:inline-flex;align-items:center;text-decoration:none" href="https://claude.ai/new" target="_blank" rel="noopener noreferrer">Claude 열기</a></div>
-  <details><summary>보낼 내용 미리보기${can?` (${buildPrompt().length.toLocaleString()}자)`:""}</summary>${can?`<pre>${esc(buildPrompt())}</pre>`:""}</details>`;
+  <div class="row">${S.ais.map((a,i)=>`<button class="btn ${i===0?"primary":""}" data-ai="${i}" ${can?"":"disabled"}>${esc(a[0])}에 보내기</button>`).join("")}</div>
+  <div class="row" style="align-items:center"><button class="btn small" data-act="copy-prompt" ${can?"":"disabled"}>복사만 하기</button>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input id="popup" type="checkbox" ${S.popup?"checked":""} style="width:18px;height:18px;margin:0">화면 옆 별도 창으로 열기</label></div>
+  <div class="muted" style="font-size:12px;line-height:1.6">대부분의 AI 사이트는 다른 페이지 안에 넣는 것을 막아 두어서, 이 화면 안에 끼우지 않고 별도 창으로 엽니다. 창이 열리지 않으면 브라우저의 팝업 허용을 확인하세요.</div>
+  <details><summary>보낼 내용 미리보기${can?` (${buildPrompt().length.toLocaleString()}자)`:""}</summary>${can?`<pre>${esc(buildPrompt())}</pre>`:""}</details>
+  <details><summary>AI 목록 편집</summary>
+    <div class="muted" style="font-size:12px;margin:6px 0">한 줄에 하나씩, <code>이름 | https://주소</code> 형식</div>
+    <textarea id="ais">${esc(S.ais.map(a=>a[0]+" | "+a[1]).join("\n"))}</textarea>
+    <button class="btn small" data-act="save-ais" style="margin-top:8px">목록 저장</button></details>`;
+}
+async function openAi(i){
+  const [name,url]=S.ais[i];
+  const feat=S.popup?(()=>{const sw=screen.availWidth,sh=screen.availHeight,w=Math.min(760,Math.round(sw*0.45));return `popup=yes,noopener,noreferrer,width=${w},height=${sh},left=${(screen.availLeft||0)+sw-w},top=${screen.availTop||0}`})():"noopener,noreferrer";
+  window.open(url,"_blank",feat);   // 클릭 직후에 열어야 팝업이 차단되지 않는다
+  try{await copyText(buildPrompt());toast(`복사했습니다. ${name} 창에 붙여넣으세요`)}catch(e){toast("복사하지 못했습니다. 미리보기에서 직접 선택해 복사하세요")}
+}
+function ssModal(ex){
+  const inp=(id,lab,extra="")=>`<div class="fld" ${extra}><label for="${id}" class="lab">${lab}</label><input id="${id}" type="text" autocomplete="off"></div>`;
+  return `<h2>슈퍼세트 표시</h2>
+  <div class="muted" style="font-size:13px;line-height:1.6">번갈아 한 두 종목을 비고에 한 줄로 적습니다. 가민에 기록되지 않은 종목(예: 푸시업)도 직접 입력하면 됩니다.</div>
+  <datalist id="ssx">${ex.map(x=>`<option value="${esc(x)}"></option>`).join("")}</datalist>
+  <div class="row">${inp("ssA","종목 A").replace('type="text"','type="text" list="ssx"')}${inp("ssAr","횟수",'style="flex:0 1 110px"')}</div>
+  <div class="row">${inp("ssB","종목 B").replace('type="text"','type="text" list="ssx"')}${inp("ssBr","횟수",'style="flex:0 1 110px"')}</div>
+  <div class="row">${inp("ssN","라운드 수",'style="flex:0 1 140px"')}</div>
+  <div class="note" id="ssPrev">SS: (종목 A, B를 입력하세요)</div>
+  <div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">취소</button><button class="btn primary" data-act="ss-apply">비고에 추가</button></div>`;
+}
+function ssText(){
+  const v=id=>(($("#"+id)||{}).value||"").trim();
+  const A=v("ssA"),B=v("ssB");if(!A||!B)return null;
+  const a=v("ssAr"),b=v("ssBr"),n=v("ssN");
+  return `SS: ${A}${a?" "+a:""} + ${B}${b?" "+b:""}${n?" ×"+n:""}`;
 }
 
 /* ---------- modals ---------- */
@@ -393,14 +463,12 @@ async function accountModal(){
 
 /* ---------- events ---------- */
 document.addEventListener("click",async ev=>{
-  const t=ev.target.closest("[data-act],[data-tab],[data-day],[data-q],[data-preset],[data-overwrite],[data-overlay]");
+  const t=ev.target.closest("[data-act],[data-tab],[data-day],[data-q],[data-preset],[data-overwrite],[data-overlay],[data-week],[data-ai]");
   if(!t)return;
   if(t.dataset.overlay!==undefined){if(ev.target===t&&!(S.g&&S.g.running))closeModal();return}
-  if(t.dataset.tab){
-    if(S.tab==="notes"&&t.dataset.tab!=="notes"&&S.dirty.size&&!confirm("저장하지 않은 메모가 있습니다. 이동할까요?"))return;
-    if(t.dataset.tab!=="notes")S.dirty.clear();
-    S.tab=t.dataset.tab;store("tab",S.tab);render();return;
-  }
+  if(t.dataset.tab){S.tab=t.dataset.tab;store("tab",S.tab);renderTabs();layout();return}   // 메인을 다시 그리지 않아 입력 중인 메모가 유지된다
+  if(t.dataset.week){const wk=t.dataset.week;setWeek(wk,!S.openWeeks.has(wk));renderSide();return}
+  if(t.dataset.ai!==undefined)return openAi(+t.dataset.ai);
   if(t.dataset.day)return selectDay(t.dataset.day);
   if(t.dataset.q){S.question=QUESTIONS[+t.dataset.q];renderClaude();return}
   if(t.dataset.preset){const [a,b]=t.dataset.preset.split("|");S.g.start=a;S.g.end=b;refreshGarmin();return}
@@ -412,6 +480,24 @@ document.addEventListener("click",async ev=>{
     case"close":return closeModal();
     case"run-garmin":return runGarmin();
     case"pick-files":return $("#fi").click();
+    case"open-ss":{const sec=t.closest(".nb");S.ssId=sec.dataset.id;let ex=[];try{ex=JSON.parse(sec.dataset.ex||"[]")}catch(e){}openModal(ssModal(ex));return}
+    case"ss-apply":{
+      const txt=ssText();if(!txt){toast("종목 A와 B를 입력하세요");return}
+      const sec=document.querySelector(`.nb[data-id="${S.ssId}"]`),ta=sec&&sec.querySelector('textarea[data-label="비고"]');
+      if(!ta){toast("이 메모에는 비고 칸이 없습니다");return}
+      const cur=ta.value.trim();ta.value=cur?cur+" / "+txt:txt;autosize(ta);
+      ta.dispatchEvent(new Event("input",{bubbles:true}));closeModal();toast("비고에 추가했습니다. 저장을 눌러 주세요");return;
+    }
+    case"save-ais":{
+      const list=[];
+      for(const l of $("#ais").value.split("\n").map(s=>s.trim()).filter(Boolean)){
+        const [n,u]=l.split("|").map(s=>s.trim());
+        if(!n||!/^https:\/\/\S+$/.test(u||"")){toast(`형식 오류: ${l}  (이름 | https://주소)`);return}
+        list.push([n,u]);
+      }
+      if(!list.length){toast("AI를 한 개 이상 넣어 주세요");return}
+      S.ais=list;store("ais",JSON.stringify(list));renderClaude();toast("AI 목록을 저장했습니다");return;
+    }
     case"copy-prompt":
       try{await copyText(buildPrompt());toast("복사했습니다. Claude 창에 붙여넣으세요")}catch(e){toast("복사하지 못했습니다. 미리보기에서 직접 선택해 복사하세요")}
       return;
@@ -442,6 +528,7 @@ document.addEventListener("click",async ev=>{
 });
 document.addEventListener("input",ev=>{
   const t=ev.target;
+  if(t.id&&t.id.startsWith("ss")&&$("#ssPrev")){$("#ssPrev").textContent=ssText()||"SS: (종목 A, B를 입력하세요)";return}
   if(t.id==="q"){S.question=t.value;const d=$("#claude details");if(d){const p=d.querySelector("pre");if(p){p.textContent=buildPrompt();d.querySelector("summary").textContent=`보낼 내용 미리보기 (${buildPrompt().length.toLocaleString()}자)`}}return}
   if(t.closest(".nb")&&t.matches("textarea")){
     autosize(t);const sec=t.closest(".nb");S.dirty.add(sec.dataset.id);
@@ -455,6 +542,7 @@ document.addEventListener("change",ev=>{
   else if(t.id==="g2"&&S.g){S.g.end=t.value;refreshGarmin()}
   else if(t.id==="g3"&&S.g){S.g.redo=t.checked}
   else if(t.id==="fi"){handleFiles(t.files);t.value=""}
+  else if(t.id==="popup"){S.popup=t.checked;store("popup",t.checked?"1":"0")}
 });
 document.addEventListener("keydown",ev=>{if(ev.key==="Escape"&&!(S.g&&S.g.running))closeModal()});
 window.addEventListener("unhandledrejection",ev=>{const r=ev.reason;toast("오류: "+((r&&(r.error||r.message))||"알 수 없는 오류"))});
@@ -470,6 +558,7 @@ window.addEventListener("drop",ev=>{if(!hasFiles(ev))return;ev.preventDefault();
 
 /* ---------- start ---------- */
 (async()=>{
+  initSplit();
   const saved=store("tab");if(TABS.some(t=>t[0]===saved))S.tab=saved;
   try{await loadDays(false);await loadReport()}catch(e){toast(e.error)}
   render();

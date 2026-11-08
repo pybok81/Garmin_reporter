@@ -391,7 +391,7 @@ function openModal(html){
 function closeModal(){$("#modal-root").innerHTML="";S.g&&(S.g.running||(S.g=null))}
 function rangePresets(){
   const t=S.today||fmtLocal(new Date()),dow=(parseDay(t).getDay()+6)%7;
-  return [["어제",addDays(t,-1),addDays(t,-1)],["최근 3일",addDays(t,-2),t],["이번 주",addDays(t,-dow),t]];
+  return [["오늘",t,t],["어제",addDays(t,-1),addDays(t,-1)],["최근 3일",addDays(t,-2),t],["이번 주",addDays(t,-dow),t]];
 }
 function garminModal(){
   const g=S.g,t=S.today;

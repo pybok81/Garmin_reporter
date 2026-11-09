@@ -45,6 +45,7 @@ CFG = {
     "data": ROOT / "data",
     "feedback": ROOT / "feedback",
     "outbox": ROOT / "outbox",
+    "inbox": None,
     "hosts": {"127.0.0.1", "localhost", "[::1]", "::1"},
 }
 
@@ -88,6 +89,27 @@ def reveal_in_file_manager(path: Path) -> bool:
         return True
     except OSError:
         return False
+
+
+INBOX_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})[_\-\s]+(.+)\.md$", re.IGNORECASE)
+AI_ALIASES = {"gpt": "ChatGPT", "chatgpt": "ChatGPT", "openai": "ChatGPT", "gemini": "Gemini", "claude": "Claude",
+              "perplexity": "Perplexity", "grok": "Grok", "copilot": "Copilot"}
+
+
+def inbox_dir() -> Path:
+    """피드백 파일을 모아 두는 폴더. .env의 FEEDBACK_INBOX(절대 경로 또는 프로젝트 기준 상대 경로), 기본은 inbox/."""
+    raw = os.getenv("FEEDBACK_INBOX") or load_env_file().get("FEEDBACK_INBOX")
+    if raw:
+        p = Path(raw).expanduser()
+        return p if p.is_absolute() else ROOT / p
+    return CFG["inbox"] or ROOT / "inbox"
+
+
+def inbox_files() -> list[Path]:
+    d = inbox_dir()
+    if not d.is_dir():
+        return []
+    return sorted(p for p in d.glob("*.md") if p.is_file() and INBOX_NAME_RE.match(p.name))
 
 
 def uses_crlf(data: bytes) -> bool:
@@ -272,6 +294,51 @@ def api_bundle(body: dict) -> dict:
     return {"ok": True, "path": str(out), "revealed": reveal_in_file_manager(out), "chars": len("\n".join(parts))}
 
 
+def api_inbox_status() -> dict:
+    return {"path": str(inbox_dir()), "exists": inbox_dir().is_dir(), "count": len(inbox_files())}
+
+
+def api_inbox_apply(body: dict) -> dict:
+    """inbox 폴더의 `날짜_AI이름.md` 파일을 feedback/에 반영하고, 처리한 파일은 `_반영됨/`으로 옮긴다."""
+    d = inbox_dir()
+    if not d.is_dir():
+        raise ApiError(404, f"피드백 폴더가 없습니다: {d}", code="no_inbox")
+    results, dates = [], set()
+    for f in inbox_files():
+        m = INBOX_NAME_RE.match(f.name)
+        day, ai = m.group(1), m.group(2).strip()
+        label = AI_ALIASES.get(ai.lower(), ai)
+        r = {"name": f.name, "date": day, "ai": label}
+        try:
+            if not valid_day(day):
+                raise ApiError(400, "날짜가 올바르지 않습니다")
+            if not report_path(day).is_file():
+                raise ApiError(404, f"{day} 리포트가 없어 건너뜀 (먼저 가져오기)")
+            if f.stat().st_size > 2 * 1024 * 1024:
+                raise ApiError(413, "파일이 너무 큽니다 (2MB 초과)")
+            text = f.read_text(encoding="utf-8-sig").replace("\r\n", "\n").replace("\r", "\n").strip()
+            if not text:
+                raise ApiError(400, "빈 파일입니다")
+            if not re.match(r"##\s*\[", text):
+                text = f"## [{label}]\n\n{text}"
+            out = api_feedback_save({"date": day, "text": text, "mode": "append"})
+            r["state"] = "dup" if out.get("duplicate") else "ok"
+            done = d / "_반영됨"
+            done.mkdir(exist_ok=True)
+            dest = done / f.name
+            if dest.exists():
+                dest = done / f"{f.stem}.{datetime.now().strftime('%Y%m%d-%H%M%S')}{f.suffix}"
+            os.replace(f, dest)
+            dates.add(day)
+        except ApiError as err:
+            r["state"], r["error"] = "skip", err.message
+        except (OSError, UnicodeDecodeError) as err:
+            r["state"], r["error"] = "skip", f"읽지 못했습니다 ({type(err).__name__})"
+        results.append(r)
+    ignored = sum(1 for p in d.glob("*.md") if p.is_file() and not INBOX_NAME_RE.match(p.name))
+    return {"ok": True, "results": results, "dates": sorted(dates), "ignored": ignored, "path": str(d)}
+
+
 def api_save_note(body: dict) -> dict:
     day, note_id, text = body.get("date"), body.get("id"), body.get("text")
     if not valid_day(day) or not isinstance(note_id, str) or not ID_RE.match(note_id) or not isinstance(text, str):
@@ -384,14 +451,25 @@ def api_settings_get() -> dict:
         "reportsDir": str(CFG["reports"]),
         "dataDir": str(CFG["data"]),
         "loginCommand": "python garmin.py export",
+        "inbox": str(inbox_dir()),
     }
 
 
 def api_settings_set(body: dict) -> dict:
-    email = body.get("email")
-    if not isinstance(email, str) or len(email) > 200 or not re.fullmatch(r"[^\s\"'#=]+@[^\s\"'#=]+", email.strip()):
-        raise ApiError(400, "이메일 형식이 올바르지 않습니다")
-    set_env_key("GARMIN_EMAIL", email.strip())
+    email, inbox = body.get("email"), body.get("inbox")
+    if email is not None:
+        if not isinstance(email, str) or len(email) > 200 or not re.fullmatch(r"[^\s\"'#=]+@[^\s\"'#=]+", email.strip()):
+            raise ApiError(400, "이메일 형식이 올바르지 않습니다")
+    if inbox is not None:
+        if not isinstance(inbox, str) or len(inbox) > 500 or any(c in inbox for c in "\"'#\r\n\0"):
+            raise ApiError(400, "피드백 폴더 경로가 올바르지 않습니다")
+        inbox = inbox.strip()
+        if inbox and not Path(inbox).expanduser().is_absolute():
+            raise ApiError(400, "피드백 폴더는 전체 경로(예: C:\\Users\\내이름\\Downloads)로 적어 주세요")
+    if email is not None:
+        set_env_key("GARMIN_EMAIL", email.strip())
+    if inbox is not None:
+        set_env_key("FEEDBACK_INBOX", inbox)
     return api_settings_get()
 
 
@@ -457,6 +535,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(200, api_report((q.get("date") or [""])[0]))
                 elif url.path == "/api/feedback":
                     self._json(200, api_feedback_get((q.get("date") or [""])[0]))
+                elif url.path == "/api/inbox":
+                    self._json(200, api_inbox_status())
                 elif url.path == "/api/settings":
                     self._json(200, api_settings_get())
                 else:
@@ -467,6 +547,7 @@ class Handler(BaseHTTPRequestHandler):
                     "/api/notes": api_save_note,
                     "/api/feedback": api_feedback_save,
                     "/api/bundle": api_bundle,
+                    "/api/inbox/apply": api_inbox_apply,
                     "/api/upload": api_upload,
                     "/api/report/rebuild": api_rebuild,
                     "/api/garmin/sync": api_sync,
@@ -500,6 +581,7 @@ def main() -> int:
     CFG["reports"], CFG["data"] = args.reports.resolve(), args.data.resolve()
     CFG["feedback"] = CFG["reports"].parent / "feedback"
     CFG["outbox"] = CFG["reports"].parent / "outbox"
+    CFG["inbox"] = CFG["reports"].parent / "inbox"
     if args.host not in ("127.0.0.1", "localhost", "::1"):
         CFG["hosts"].add(args.host.lower())
         print("주의: 로컬 주소가 아닌 곳에 열었습니다. 이 앱에는 로그인 보호가 없습니다.", file=sys.stderr)

@@ -147,6 +147,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   <div class="brand"><h1>훈련 리포트</h1><span class="sub">Garmin 일별 리포트 관리</span></div>
   <div class="actions">
     <button class="btn primary" data-act="open-garmin">가민에서 가져오기</button>
+    <button class="btn" id="inbox-btn" data-act="apply-inbox" title="피드백 폴더에 넣어 둔 날짜_AI이름.md 파일을 반영합니다">피드백 반영</button>
     <button class="btn" data-act="open-upload">.md 파일 올리기</button>
     <button class="btn" data-act="open-account">계정 설정</button>
   </div>
@@ -312,6 +313,18 @@ function initSplit(){
   sp.addEventListener("keydown",e=>{
     if(e.key==="ArrowLeft"||e.key==="ArrowRight"){e.preventDefault();set(S.claudeW+(e.key==="ArrowLeft"?32:-32));store("claudeW",String(S.claudeW))}
   });
+}
+async function refreshInbox(){
+  try{S.inbox=await api("/api/inbox")}catch(e){S.inbox=null}
+  const b=$("#inbox-btn");if(!b)return;
+  const n=S.inbox?S.inbox.count:0;
+  b.textContent=n?`피드백 반영 (${n})`:"피드백 반영";
+  b.classList.toggle("primary",n>0);
+}
+function inboxResultModal(r){
+  const lab={ok:"반영됨",dup:"이미 있음",skip:"건너뜀"},col={ok:"var(--ok)",dup:"var(--muted)",skip:"var(--danger)"};
+  const rows=r.results.length?r.results.map(x=>`<div class="r"><strong style="color:${col[x.state]}">${lab[x.state]}</strong><span>${esc(x.name)}</span>${x.error?`<span class="muted">${esc(x.error)}</span>`:`<span class="muted">→ ${esc(x.date)} [${esc(x.ai)}]</span>`}</div>`).join(""):`<div class="note">반영할 파일이 없습니다. 파일 이름이 <code>2026-11-08_gpt.md</code> 형식인지 확인하세요.</div>`;
+  openModal(`<h2>피드백 반영 결과</h2><div class="res">${rows}</div><div class="muted" style="font-size:12px">폴더: ${esc(r.path)}${r.ignored?` · 이름 형식이 달라 건드리지 않은 .md ${r.ignored}개`:""}<br>반영한 파일은 폴더 안 <code>_반영됨</code>으로 옮겼습니다.</div><div class="row" style="justify-content:flex-end"><button class="btn primary" data-act="close">닫기</button></div>`);
 }
 function renderTabs(){
   $("#tabs").innerHTML=TABS.map(([k,v])=>`<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${v}</button>`).join("");
@@ -540,8 +553,9 @@ async function accountModal(){
     <div class="note">로그인 상태: <strong>${s.tokenExists?"토큰 있음 (비밀번호 없이 가져오기 가능)":"토큰 없음"}</strong><br>
     비밀번호는 이 앱에 입력하거나 저장하지 않습니다. 처음 한 번만 터미널에서 <code>${esc(s.loginCommand)}</code> 를 실행해 로그인하세요 (MFA 포함). 토큰이 만료되면 같은 명령을 다시 실행합니다.</div></section>
   <section style="display:flex;flex-direction:column;gap:6px"><span class="lab">저장 위치</span>
-    <div class="note">리포트: ${esc(s.reportsDir)}<br>가민 원본: ${esc(s.dataDir)}<br><span class="muted">폴더 변경은 <code>python app.py --reports 경로 --data 경로</code> 로 지정합니다.</span></div></section>
-  <div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">닫기</button><button class="btn primary" data-act="save-account">이메일 저장</button></div>`);
+    <div class="note">리포트: ${esc(s.reportsDir)}<br>가민 원본: ${esc(s.dataDir)}<br><span class="muted">폴더 변경은 <code>python app.py --reports 경로 --data 경로</code> 로 지정합니다.</span></div>
+    <div class="fld"><label for="ai-inbox" class="lab" style="font-weight:400">피드백 폴더 (AI에게 받은 <code>날짜_gpt.md</code> 파일을 넣어 두는 곳)</label><input id="ai-inbox" type="text" autocomplete="off" value="${esc(s.inbox)}"><span class="muted" style="font-size:12px">예: 다운로드 폴더 전체 경로. 비우면 앱 폴더의 <code>inbox</code>를 씁니다.</span></div></section>
+  <div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">닫기</button><button class="btn primary" data-act="save-account">저장</button></div>`);
 }
 
 /* ---------- events ---------- */
@@ -560,6 +574,18 @@ document.addEventListener("click",async ev=>{
     case"open-garmin":return openGarmin();
     case"open-upload":return openUpload();
     case"open-account":return accountModal();
+    case"apply-inbox":{
+      t.disabled=true;
+      try{
+        const r=await api("/api/inbox/apply",{});
+        await loadDays();
+        if(r.dates.includes(S.sel)&&!S.dirty.size)await loadReport();
+        render();inboxResultModal(r);
+      }catch(e){
+        toast(e.code==="no_inbox"?`${e.error} — 폴더를 만들거나 계정 설정에서 경로를 지정하세요`:e.error);
+      }finally{t.disabled=false;refreshInbox()}
+      return;
+    }
     case"close":return closeModal();
     case"run-garmin":return runGarmin();
     case"pick-files":return $("#fi").click();
@@ -620,7 +646,7 @@ document.addEventListener("click",async ev=>{
       return;
     }
     case"save-account":{
-      try{S.settings=await api("/api/settings",{email:$("#ae").value});toast("이메일을 저장했습니다");closeModal()}catch(e){toast(e.error)}
+      try{S.settings=await api("/api/settings",{email:$("#ae").value.trim()||undefined,inbox:$("#ai-inbox").value});toast("저장했습니다");closeModal();refreshInbox()}catch(e){toast(e.error)}
       return;
     }
   }
@@ -662,7 +688,8 @@ window.addEventListener("drop",ev=>{if(!hasFiles(ev))return;ev.preventDefault();
   initSplit();
   const saved=store("tab");if(TABS.some(t=>t[0]===saved))S.tab=saved;
   try{await loadDays(false);await loadReport()}catch(e){toast(e.error)}
-  render();
+  render();refreshInbox();
+  window.addEventListener("focus",refreshInbox);
 })();
 </script>
 </body>

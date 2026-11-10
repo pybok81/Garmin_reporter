@@ -65,8 +65,29 @@ def report_path(day: str) -> Path:
     return CFG["reports"] / f"{day}.md"
 
 
-def feedback_path(day: str) -> Path:
-    return CFG["feedback"] / f"{day}.md"
+AI_DIR_RE = re.compile(r"^[0-9A-Za-z가-힣][0-9A-Za-z가-힣 ._\-]{0,39}$")
+
+
+def valid_ai(name) -> bool:
+    """AI 이름은 feedback/ 아래 폴더 이름이 된다. 경로 문자, 숨김(.)·예약(_) 시작, 끝의 점/공백(Windows)을 막는다."""
+    return isinstance(name, str) and bool(AI_DIR_RE.fullmatch(name)) and name == name.rstrip(" .")
+
+
+def feedback_path(day: str, ai: str) -> Path:
+    return CFG["feedback"] / ai / f"{day}.md"
+
+
+def feedback_items(day: str) -> list[tuple[str, Path]]:
+    root = CFG["feedback"]
+    if not root.is_dir():
+        return []
+    out = []
+    for d in sorted(root.iterdir(), key=lambda x: x.name.lower()):
+        if d.is_dir() and valid_ai(d.name):
+            f = d / f"{day}.md"
+            if f.is_file():
+                out.append((d.name, f))
+    return out
 
 
 def plan_path() -> Path:
@@ -143,7 +164,7 @@ def day_info(path: Path) -> dict:
         "notesFilled": sum(1 for i in ids if note_filled(notes.get(i, ""))),
         "snapshot": "오늘 스냅샷" in text,
         "hasRaw": (CFG["data"] / "raw" / day).is_dir(),
-        "hasFeedback": feedback_path(day).is_file(),
+        "hasFeedback": bool(feedback_items(day)),
     }
 
 
@@ -246,34 +267,78 @@ def api_report(day: str) -> dict:
 def api_feedback_get(day: str) -> dict:
     if not valid_day(day):
         raise ApiError(400, "날짜 형식이 올바르지 않습니다")
-    path = feedback_path(day)
-    text = path.read_text(encoding="utf-8") if path.is_file() else ""
-    return {"date": day, "text": text}
+    return {"date": day, "items": [{"ai": ai, "text": f.read_text(encoding="utf-8")} for ai, f in feedback_items(day)]}
 
 
 def api_feedback_save(body: dict) -> dict:
-    """mode=set: 통째로 저장(빈 문자열이면 파일 삭제) / mode=append: 기존 내용 뒤에 구분선과 함께 추가."""
-    day, text, mode = body.get("date"), body.get("text"), body.get("mode", "set")
+    """feedback/<AI>/<날짜>.md 한 개를 쓴다. mode=set: 통째로 저장(빈 문자열이면 파일 삭제) / append: 구분선과 함께 뒤에 추가."""
+    day, ai, text, mode = body.get("date"), body.get("ai"), body.get("text"), body.get("mode", "set")
     if not valid_day(day) or not isinstance(text, str) or mode not in ("set", "append"):
         raise ApiError(400, "요청 형식이 올바르지 않습니다")
+    if not valid_ai(ai):
+        raise ApiError(400, "AI 이름이 올바르지 않습니다 (한글·영문·숫자·공백·._- 만, 40자 이내)")
     if len(text) > 2 * 1024 * 1024:
         raise ApiError(413, "내용이 너무 큽니다 (2MB 초과)")
     text = text.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+    duplicate = False
     with FILE_LOCK:
-        path = feedback_path(day)
+        path = feedback_path(day, ai)
         old = path.read_text(encoding="utf-8").strip("\n") if path.is_file() else ""
         if mode == "append":
-            if not text:
+            if not text.strip():
                 raise ApiError(400, "추가할 내용이 없습니다")
             if text in old:
-                return {"ok": True, "text": old + "\n", "duplicate": True}
-            text = f"{old}\n\n---\n\n{text}" if old else text
-        if not text.strip():
-            if path.is_file():
-                path.unlink()
-            return {"ok": True, "text": ""}
-        atomic_write(path, text + "\n")
-    return {"ok": True, "text": text + "\n"}
+                duplicate = True
+            else:
+                text = f"{old}\n\n---\n\n{text}" if old else text
+        else:
+            if not text.strip():
+                if path.is_file():
+                    path.unlink()
+                    try:
+                        path.parent.rmdir()  # 비었으면 폴더도 정리
+                    except OSError:
+                        pass
+        if not duplicate and text.strip():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write(path, text + "\n")
+    out = api_feedback_get(day)
+    out["ok"], out["duplicate"] = True, duplicate
+    return out
+
+
+def migrate_feedback() -> int:
+    """예전 feedback/날짜.md(여러 AI가 `## [이름]` 머리글로 섞인 형식)를 feedback/<AI>/날짜.md로 나눈다. 원본은 _이전/에 보관."""
+    root = CFG["feedback"]
+    if not root.is_dir():
+        return 0
+    moved = 0
+    for f in sorted(root.glob("*.md")):
+        if not valid_day(f.stem):
+            continue
+        try:
+            text = f.read_text(encoding="utf-8-sig")
+            for chunk in re.split(r"(?m)^\s*-{3,}\s*$", text):
+                chunk = chunk.strip()
+                if not chunk:
+                    continue
+                m = re.match(r"##\s*\[([^\]\n]+)\]\s*\n?", chunk)
+                ai, body = (m.group(1).strip(), chunk[m.end():].strip()) if m else ("기타", chunk)
+                ai = AI_ALIASES.get(ai.lower(), ai)
+                if not valid_ai(ai):
+                    ai, body = "기타", chunk
+                if body:
+                    api_feedback_save({"date": f.stem, "ai": ai, "text": body, "mode": "append"})
+            old = root / "_이전"
+            old.mkdir(exist_ok=True)
+            dest = old / f.name
+            if dest.exists():
+                dest = old / f"{f.stem}.{datetime.now().strftime('%Y%m%d-%H%M%S')}{f.suffix}"
+            os.replace(f, dest)
+            moved += 1
+        except (OSError, UnicodeDecodeError, ApiError) as err:
+            print(f"피드백 이전 실패: {f.name} ({err})", file=sys.stderr)
+    return moved
 
 
 def api_bundle(body: dict) -> dict:
@@ -319,9 +384,7 @@ def api_inbox_apply(body: dict) -> dict:
             text = f.read_text(encoding="utf-8-sig").replace("\r\n", "\n").replace("\r", "\n").strip()
             if not text:
                 raise ApiError(400, "빈 파일입니다")
-            if not re.match(r"##\s*\[", text):
-                text = f"## [{label}]\n\n{text}"
-            out = api_feedback_save({"date": day, "text": text, "mode": "append"})
+            out = api_feedback_save({"date": day, "ai": label, "text": text, "mode": "append"})
             r["state"] = "dup" if out.get("duplicate") else "ok"
             done = d / "_반영됨"
             done.mkdir(exist_ok=True)
@@ -582,6 +645,9 @@ def main() -> int:
     CFG["feedback"] = CFG["reports"].parent / "feedback"
     CFG["outbox"] = CFG["reports"].parent / "outbox"
     CFG["inbox"] = CFG["reports"].parent / "inbox"
+    n = migrate_feedback()
+    if n:
+        print(f"예전 피드백 파일 {n}개를 AI별 폴더로 옮겼습니다 (원본: feedback/_이전)")
     if args.host not in ("127.0.0.1", "localhost", "::1"):
         CFG["hosts"].add(args.host.lower())
         print("주의: 로컬 주소가 아닌 곳에 열었습니다. 이 앱에는 로그인 보호가 없습니다.", file=sys.stderr)

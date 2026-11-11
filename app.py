@@ -90,8 +90,27 @@ def feedback_items(day: str) -> list[tuple[str, Path]]:
     return out
 
 
-def plan_path() -> Path:
-    return CFG["reports"].parent / "plan" / "방향.md"
+DOC_KINDS = {"plan": "훈련 계획", "reference": "사전"}
+DOC_NAME_RE = re.compile(r"^[0-9A-Za-z가-힣][0-9A-Za-z가-힣 ._\-()]{0,80}\.md$")
+
+
+def doc_dir(kind: str) -> Path:
+    if kind not in DOC_KINDS:
+        raise ApiError(400, "문서 종류가 올바르지 않습니다")
+    return CFG["reports"].parent / kind
+
+
+def doc_file(kind: str, name) -> Path:
+    if not isinstance(name, str) or not DOC_NAME_RE.fullmatch(name) or name != name.rstrip(" ."):
+        raise ApiError(400, "파일 이름이 올바르지 않습니다 (한글·영문·숫자·공백·._-() 만, .md로 끝나야 함)")
+    return doc_dir(kind) / name
+
+
+def doc_names(kind: str) -> list[str]:
+    d = doc_dir(kind)
+    if not d.is_dir():
+        return []
+    return sorted((f.name for f in d.glob("*.md") if f.is_file() and DOC_NAME_RE.fullmatch(f.name)), key=str.lower)
 
 
 def reveal_in_file_manager(path: Path) -> bool:
@@ -113,7 +132,8 @@ def reveal_in_file_manager(path: Path) -> bool:
 
 
 INBOX_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})[_\-\s]+(.+)\.md$", re.IGNORECASE)
-AI_ALIASES = {"gpt": "ChatGPT", "chatgpt": "ChatGPT", "openai": "ChatGPT", "gemini": "Gemini", "claude": "Claude",
+AI_ALIASES = {"gpt": "ChatGPT", "chatgpt": "ChatGPT", "openai": "ChatGPT",
+              "gemini": "gemini", "claude": "claude", "claud": "claude", "cladue": "claude", "기타": "claude",
               "perplexity": "Perplexity", "grok": "Grok", "copilot": "Copilot"}
 
 
@@ -258,7 +278,7 @@ class ApiError(Exception):
 
 def api_days() -> dict:
     return {"today": date.today().isoformat(), "days": list_days(), "reportsDir": str(CFG["reports"]),
-            "hasPlan": plan_path().is_file()}
+            "hasPlan": bool(doc_names("plan")), "hasRef": bool(doc_names("reference"))}
 
 
 def api_report(day: str) -> dict:
@@ -332,10 +352,10 @@ def migrate_feedback() -> int:
                 if not chunk:
                     continue
                 m = re.match(r"##\s*\[([^\]\n]+)\]\s*\n?", chunk)
-                ai, body = (m.group(1).strip(), chunk[m.end():].strip()) if m else ("기타", chunk)
+                ai, body = (m.group(1).strip(), chunk[m.end():].strip()) if m else ("claude", chunk)  # 머리글 없던 예전 피드백은 Claude 답변
                 ai = canon_ai(ai)
                 if not valid_ai(ai):
-                    ai, body = "기타", chunk
+                    ai, body = "claude", chunk
                 if body:
                     api_feedback_save({"date": f.stem, "ai": ai, "text": body, "mode": "append"})
             old = root / "_이전"
@@ -383,22 +403,85 @@ def merge_ai_folders() -> int:
     return merged
 
 
-def api_bundle(body: dict) -> dict:
-    """AI에 첨부할 파일 하나(질문 + 훈련 방향 + 리포트)를 outbox에 만들고, 탐색기에서 선택해 연다."""
-    day, question, with_plan = body.get("date"), body.get("question", ""), bool(body.get("plan"))
-    if not valid_day(day) or not isinstance(question, str) or len(question) > 20000:
-        raise ApiError(400, "요청 형식이 올바르지 않습니다")
+def api_docs() -> dict:
+    out = []
+    for kind, label in DOC_KINDS.items():
+        items = []
+        for n in doc_names(kind):
+            st = (doc_dir(kind) / n).stat()
+            items.append({"name": n, "size": st.st_size, "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")})
+        out.append({"kind": kind, "label": label, "dir": str(doc_dir(kind)), "items": items})
+    return {"kinds": out}
+
+
+def api_doc_get(kind: str, name: str) -> dict:
+    f = doc_file(kind, name)
+    if not f.is_file():
+        raise ApiError(404, "문서가 없습니다")
+    return {"kind": kind, "name": name, "text": f.read_text(encoding="utf-8-sig")}
+
+
+def api_doc_save(body: dict) -> dict:
+    kind, name, text = body.get("kind"), body.get("name"), body.get("text")
+    f = doc_file(kind, name)
+    if not isinstance(text, str) or not text.strip():
+        raise ApiError(400, "내용이 비어 있습니다 (삭제는 삭제 버튼을 쓰세요)")
+    if len(text) > 1024 * 1024:
+        raise ApiError(413, "문서가 너무 큽니다 (1MB 초과)")
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip("\n") + "\n"
+    with FILE_LOCK:
+        created = not f.exists()
+        crlf = False
+        if not created:
+            raw = f.read_bytes()
+            crlf = uses_crlf(raw)
+            if raw.decode("utf-8-sig").replace("\r\n", "\n") == text:
+                return {"ok": True, "created": False, "unchanged": True, "name": name}
+            bak = f.parent / "_backup"
+            bak.mkdir(exist_ok=True)
+            os.replace(f, bak / f"{f.stem}.{datetime.now().strftime('%Y%m%d-%H%M%S')}{f.suffix}")
+        atomic_write(f, text, crlf)
+    return {"ok": True, "created": created, "name": name}
+
+
+def api_doc_delete(body: dict) -> dict:
+    f = doc_file(body.get("kind"), body.get("name"))
+    if not f.is_file():
+        raise ApiError(404, "문서가 없습니다")
+    with FILE_LOCK:
+        trash = f.parent / "_삭제"
+        trash.mkdir(exist_ok=True)
+        os.replace(f, trash / f"{f.stem}.{datetime.now().strftime('%Y%m%d-%H%M%S')}{f.suffix}")
+    return {"ok": True}
+
+
+def compose_ai_text(day: str, question: str, with_plan: bool, with_ref: bool) -> str:
     rp = report_path(day)
     if not rp.is_file():
         raise ApiError(404, "리포트가 없습니다")
     parts = [question.strip() or "이 날 훈련을 평가해 줘", ""]
-    if with_plan and plan_path().is_file():
-        parts += ["## 현재 훈련 방향", plan_path().read_text(encoding="utf-8").strip(), ""]
+    for kind, flag, title in (("plan", with_plan, "## 현재 훈련 방향·계획"), ("reference", with_ref, "## 참고 사전")):
+        names = doc_names(kind) if flag else []
+        if names:
+            parts.append(title)
+            for n in names:
+                parts += [f"### {n[:-3]}", (doc_dir(kind) / n).read_text(encoding="utf-8-sig").replace("\r\n", "\n").strip(), ""]
     parts += [f"## {day} 훈련 리포트 (메모 포함)", rp.read_text(encoding="utf-8").replace("\r\n", "\n").strip(), ""]
+    return "\n".join(parts)
+
+
+def api_bundle(body: dict) -> dict:
+    """AI에 보낼 내용(질문 + 선택한 계획/사전 + 리포트)을 만든다. textOnly면 텍스트만 돌려주고, 아니면 outbox에 파일로 만들고 탐색기에서 연다."""
+    day, question = body.get("date"), body.get("question", "")
+    if not valid_day(day) or not isinstance(question, str) or len(question) > 20000:
+        raise ApiError(400, "요청 형식이 올바르지 않습니다")
+    text = compose_ai_text(day, question, bool(body.get("plan")), bool(body.get("ref")))
+    if body.get("textOnly"):
+        return {"ok": True, "text": text}
     out = CFG["outbox"] / f"AI용_{day}.md"
     with FILE_LOCK:
-        atomic_write(out, "\n".join(parts))
-    return {"ok": True, "path": str(out), "revealed": reveal_in_file_manager(out), "chars": len("\n".join(parts))}
+        atomic_write(out, text)
+    return {"ok": True, "path": str(out), "revealed": reveal_in_file_manager(out), "chars": len(text)}
 
 
 def api_inbox_status() -> dict:
@@ -640,6 +723,10 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(200, api_report((q.get("date") or [""])[0]))
                 elif url.path == "/api/feedback":
                     self._json(200, api_feedback_get((q.get("date") or [""])[0]))
+                elif url.path == "/api/docs":
+                    self._json(200, api_docs())
+                elif url.path == "/api/doc":
+                    self._json(200, api_doc_get((q.get("kind") or [""])[0], (q.get("name") or [""])[0]))
                 elif url.path == "/api/inbox":
                     self._json(200, api_inbox_status())
                 elif url.path == "/api/settings":
@@ -653,6 +740,8 @@ class Handler(BaseHTTPRequestHandler):
                     "/api/feedback": api_feedback_save,
                     "/api/bundle": api_bundle,
                     "/api/inbox/apply": api_inbox_apply,
+                    "/api/doc": api_doc_save,
+                    "/api/doc/delete": api_doc_delete,
                     "/api/upload": api_upload,
                     "/api/report/rebuild": api_rebuild,
                     "/api/garmin/sync": api_sync,

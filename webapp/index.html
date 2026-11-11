@@ -95,6 +95,17 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .fr{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 10px;margin-bottom:8px}
 .fr label{flex:0 0 150px;font-size:13px;color:var(--muted);padding-top:8px}
 .fr textarea{flex:1 1 240px;min-height:40px;resize:vertical;padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:var(--sheet);overflow:hidden}
+.dwrap{display:flex;flex-wrap:wrap;min-height:320px}
+.dlist{flex:0 0 260px;max-width:100%;padding:16px;border-right:1px solid var(--line2);display:flex;flex-direction:column;gap:18px}
+.dview{flex:1 1 420px;min-width:0}
+.dk{border:1px dashed transparent;border-radius:6px}
+.dk:hover{border-color:var(--line)}
+.dkh{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.dkh h2{margin:0;font-size:13px;font-weight:600;color:var(--muted)}
+.dit{width:100%;min-height:40px;padding:4px 8px 4px 12px;border:0;border-left:3px solid var(--line);border-radius:0;background:none;display:flex;justify-content:space-between;align-items:center;gap:8px;text-align:left;font-size:14px}
+.dit:hover{background:var(--chip)}
+.dit[aria-current="true"]{border-left-color:var(--accent);background:var(--field);color:var(--accent-fg);font-weight:600}
+@media (max-width:900px){.dlist{flex:1 1 100%;border-right:0;border-bottom:1px solid var(--line2)}}
 .fbai h3{margin:0;font-size:15px;color:var(--accent-fg)}
 .fbai .fbh{margin:16px 0 6px}
 .fb{margin-top:32px;padding-top:4px;border-top:1px solid var(--line)}
@@ -158,6 +169,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 <div class="cols">
   <aside class="card side" id="side" aria-label="파일 목록"></aside>
   <main class="card main" id="main"></main>
+  <section class="card main docs" id="docs" aria-label="문서" hidden></section>
   <div class="split" id="split" role="separator" aria-orientation="vertical" aria-label="AI 창 너비 조절 (좌우 방향키)" tabindex="0"></div>
   <aside class="card claude" id="claude" aria-label="AI에게 보내기"></aside>
 </div>
@@ -167,12 +179,12 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 
 <script>
 "use strict";
-const TABS=[["report","리포트"],["claude","AI"],["split","리포트 + AI"]];
+const TABS=[["report","리포트"],["claude","AI"],["split","리포트 + AI"],["docs","문서"]];
 const QUESTIONS=["이 날 회복 상태와 운동 강도를 평가해 줘","내일 운동 계획을 제안해 줘","메모에 적을 내용을 정리해 줘"];
 const DEFAULT_AIS=[["Claude","https://claude.ai/new"],["ChatGPT","https://chatgpt.com/"],["Gemini","https://gemini.google.com/app"]];
 const WD="월화수목금토일";
 const S={fb:[],fbEdit:false,days:[],today:"",sel:null,md:"",tab:"split",dirty:new Set(),question:QUESTIONS[0],g:null,up:[],uploadFiles:new Map(),settings:null,
-  claudeW:Math.max(320,+store("claudeW")||460),openWeeks:new Set([].concat(loadJson("weeks",[]))),revealed:null,ais:loadAis(),popup:store("popup")!=="0",asFile:store("asfile")!=="0",plan:store("plan")==="1",hasPlan:false};
+  claudeW:Math.max(320,+store("claudeW")||460),openWeeks:new Set([].concat(loadJson("weeks",[]))),revealed:null,ais:loadAis(),popup:store("popup")!=="0",ref:store("ref")==="1",hasRef:false,docs:{kinds:[],sel:null,text:"",edit:false,isNew:false,upKind:"plan"},asFile:store("asfile")!=="0",plan:store("plan")==="1",hasPlan:false};
 
 /* ---------- utils ---------- */
 const $=s=>document.querySelector(s);
@@ -280,7 +292,7 @@ function replaceNote(md,id,text){
 
 /* ---------- load ---------- */
 async function loadDays(keepSel=true){
-  const d=await api("/api/days");S.days=d.days;S.today=d.today;S.hasPlan=!!d.hasPlan;
+  const d=await api("/api/days");S.days=d.days;S.today=d.today;S.hasPlan=!!d.hasPlan;S.hasRef=!!d.hasRef;
   if(!keepSel||!S.days.some(x=>x.date===S.sel))S.sel=S.days.length?S.days[0].date:null;
 }
 async function loadReport(){
@@ -299,7 +311,9 @@ async function selectDay(day){
 function render(){renderTabs();renderSide();renderMain();renderClaude();layout()}
 function layout(){
   const t=S.tab;
-  $("#main").hidden=t==="claude";
+  $("#main").hidden=t==="claude"||t==="docs";
+  $("#side").hidden=t==="docs";
+  $("#docs").hidden=t!=="docs";
   $("#claude").hidden=!(t==="claude"||t==="split");
   $("#claude").classList.toggle("wide",t==="claude");
   $("#claude").style.setProperty("--cw",S.claudeW+"px");
@@ -327,6 +341,40 @@ function inboxResultModal(r){
   const lab={ok:"반영됨",dup:"이미 있음",skip:"건너뜀"},col={ok:"var(--ok)",dup:"var(--muted)",skip:"var(--danger)"};
   const rows=r.results.length?r.results.map(x=>`<div class="r"><strong style="color:${col[x.state]}">${lab[x.state]}</strong><span>${esc(x.name)}</span>${x.error?`<span class="muted">${esc(x.error)}</span>`:`<span class="muted">→ ${esc(x.date)} [${esc(x.ai)}]</span>`}</div>`).join(""):`<div class="note">반영할 파일이 없습니다. 파일 이름이 <code>2026-11-08_gpt.md</code> 형식인지 확인하세요.</div>`;
   openModal(`<h2>피드백 반영 결과</h2><div class="res">${rows}</div><div class="muted" style="font-size:12px">폴더: ${esc(r.path)}${r.ignored?` · 이름 형식이 달라 건드리지 않은 .md ${r.ignored}개`:""}<br>반영한 파일은 폴더 안 <code>_반영됨</code>으로 옮겼습니다.</div><div class="row" style="justify-content:flex-end"><button class="btn primary" data-act="close">닫기</button></div>`);
+}
+/* ---------- 문서(훈련 계획 / 사전) ---------- */
+async function showDocs(){
+  try{S.docs.kinds=(await api("/api/docs")).kinds}catch(e){toast(e.error)}
+  renderDocs();
+}
+async function openDoc(kind,name){
+  try{const r=await api(`/api/doc?kind=${kind}&name=${encodeURIComponent(name)}`);Object.assign(S.docs,{sel:{kind,name},text:r.text,edit:false,isNew:false})}catch(e){toast(e.error)}
+  renderDocs();
+}
+function renderDocs(){
+  const D=S.docs,el=$("#docs");if(!el)return;
+  const list=D.kinds.map(k=>`<section class="dk" data-kind-drop="${k.kind}"><div class="dkh"><h2>${esc(k.label)}</h2><span class="row" style="gap:6px"><button class="btn small" data-act="doc-new" data-kind="${k.kind}">새 문서</button><button class="btn small" data-act="doc-upload" data-kind="${k.kind}">파일 올리기</button></span></div>${k.items.length?k.items.map(i=>`<button class="dit" data-act="doc-open" data-kind="${k.kind}" data-name="${esc(i.name)}" aria-current="${D.sel&&D.sel.kind===k.kind&&D.sel.name===i.name}"><span>${esc(i.name.replace(/\.md$/,""))}</span><span class="muted">${esc(i.mtime.slice(5,10))}</span></button>`).join(""):`<div class="muted" style="font-size:12px;line-height:1.6;padding:6px 0">아직 없습니다. .md 파일을 여기에 놓거나 '파일 올리기'를 누르세요.</div>`}</section>`).join("");
+  let view;
+  if(!D.sel)view=`<div class="empty">왼쪽에서 문서를 고르거나 새로 만드세요.<br><span style="font-size:13px">훈련 계획과 사전은 AI에게 보낼 때 '훈련 계획 포함', '사전 포함'을 켜면 리포트와 함께 전달됩니다.</span></div>`;
+  else{
+    const lab=(D.kinds.find(k=>k.kind===D.sel.kind)||{}).label||"";
+    view=`<div class="mhead"><div><h2 style="font-size:24px;font-family:inherit">${esc(D.sel.name.replace(/\.md$/,""))}</h2><span class="muted" style="font-size:12px">${esc(lab)} · ${esc(D.sel.name)}</span></div><div class="row">${D.edit?`<button class="btn primary small" data-act="doc-save">저장</button><button class="btn small" data-act="doc-cancel">취소</button>`:`<button class="btn small" data-act="doc-edit">편집</button><button class="btn small" data-act="doc-delete">삭제</button>`}</div></div><div class="mbody">${D.edit?`<textarea class="fbe" id="doc-text" style="min-height:420px;margin-top:12px" spellcheck="false">${esc(D.text)}</textarea>`:`<div class="rep">${renderMd(D.text)}</div>`}</div>`;
+  }
+  el.innerHTML=`<div class="dwrap"><div class="dlist">${list}</div><div class="dview">${view}</div></div><input id="doc-fi" type="file" accept=".md,text/markdown,text/plain" multiple hidden>`;
+}
+async function docUpload(kind,files){
+  files=[...files];if(!files.length)return;
+  const have=new Set(((S.docs.kinds.find(k=>k.kind===kind)||{items:[]}).items).map(i=>i.name));
+  let ok=0,bad=[],last=null;
+  for(const f of files){
+    if(!/\.md$/i.test(f.name)){bad.push(`${f.name}: .md 파일만 가능`);continue}
+    if(have.has(f.name)&&!confirm(`'${f.name}' 이(가) 이미 있습니다. 덮어쓸까요? (이전 내용은 _backup에 남습니다)`))continue;
+    try{const text=await f.text();await api("/api/doc",{kind,name:f.name,text});ok++;last=f.name}catch(e){bad.push(`${f.name}: ${e.error||"실패"}`)}
+  }
+  await showDocs();
+  if(last&&ok===1)await openDoc(kind,last);
+  await loadDays().catch(()=>{});renderClaude();
+  toast(`${ok}개 올렸습니다${bad.length?` · 실패 ${bad.length}: ${bad.join(" / ")}`:""}`);
 }
 function renderTabs(){
   $("#tabs").innerHTML=TABS.map(([k,v])=>`<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${v}</button>`).join("");
@@ -358,8 +406,8 @@ function curInfo(){return S.days.find(d=>d.date===S.sel)}
 function feedbackBlock(){
   const items=S.fb||[];
   if(S.fbEdit==="add"){
-    const names=[...new Set(S.ais.map(x=>x[0]).concat(["ChatGPT","Gemini","Claude"],items.map(i=>i.ai)))];
-    return `<section class="fb"><div class="fbh"><h2>AI 피드백 추가</h2></div><div class="row" style="align-items:center;margin-bottom:8px"><label for="fbai" class="muted" style="font-size:13px">어느 AI의 답변인가요?</label><select id="fbai">${names.map(n=>`<option>${esc(n)}</option>`).join("")}<option>기타</option></select></div><textarea class="fbe" id="fbt" placeholder="AI 답변을 붙여넣으세요"></textarea><div class="nbf" style="margin-top:8px"><button class="btn primary small" data-act="fb-add">추가</button><button class="btn small" data-act="fb-cancel">취소</button></div></section>`;
+    const names=[];for(const n of ["ChatGPT","gemini","claude"].concat(items.map(i=>i.ai)))if(!names.some(x=>x.toLowerCase()===n.toLowerCase()))names.push(n);
+    return `<section class="fb"><div class="fbh"><h2>AI 피드백 추가</h2></div><div class="row" style="align-items:center;margin-bottom:8px"><label for="fbai" class="muted" style="font-size:13px">어느 AI의 답변인가요?</label><select id="fbai">${names.map(n=>`<option>${esc(n)}</option>`).join("")}</select></div><textarea class="fbe" id="fbt" placeholder="AI 답변을 붙여넣으세요"></textarea><div class="nbf" style="margin-top:8px"><button class="btn primary small" data-act="fb-add">추가</button><button class="btn small" data-act="fb-cancel">취소</button></div></section>`;
   }
   const editAi=typeof S.fbEdit==="string"&&S.fbEdit.startsWith("edit:")?S.fbEdit.slice(5):null;
   const head=`<div class="fbh"><h2>AI 피드백</h2><button class="btn small" data-act="fb-addform">${items.length?"추가":"피드백 붙여넣기"}</button></div>`;
@@ -379,6 +427,11 @@ function renderMain(){
   el.querySelectorAll(".fr textarea").forEach(autosize);
 }
 function autosize(t){t.style.height="auto";t.style.height=Math.max(40,t.scrollHeight+2)+"px"}
+async function promptText(){
+  const plan=S.plan&&S.hasPlan,ref=S.ref&&S.hasRef;
+  if(plan||ref)return (await api("/api/bundle",{date:S.sel,question:S.question,plan,ref,textOnly:true})).text;
+  return buildPrompt();
+}
 function buildPrompt(){
   return `${S.question.trim()}\n\n아래는 ${S.sel} 훈련 리포트입니다.\n\n---\n${S.md}`;
 }
@@ -395,7 +448,8 @@ function renderClaude(){
     <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input id="popup" type="checkbox" ${S.popup?"checked":""} style="width:18px;height:18px;margin:0">화면 옆 별도 창으로 열기</label></div>
   <div class="row" style="align-items:center;gap:16px">
     <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input id="asfile" type="checkbox" ${S.asFile?"checked":""} style="width:18px;height:18px;margin:0">파일 하나로 만들어 탐색기에서 열기</label>
-    ${S.hasPlan?`<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input id="plan" type="checkbox" ${S.plan?"checked":""} style="width:18px;height:18px;margin:0">훈련 방향 포함</label>`:""}</div>
+    ${S.hasPlan?`<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input id="plan" type="checkbox" ${S.plan?"checked":""} style="width:18px;height:18px;margin:0">훈련 계획 포함</label>`:""}
+    ${S.hasRef?`<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input id="ref" type="checkbox" ${S.ref?"checked":""} style="width:18px;height:18px;margin:0">사전 포함</label>`:""}</div>
   ${S.asFile?`<div class="muted" style="font-size:12px;line-height:1.6">AI 버튼을 누르면 <code>outbox/AI용_날짜.md</code>를 만들어 탐색기에서 선택해 두고, AI 창이 열립니다. 그 파일을 AI 창에 끌어다 놓고, 복사된 짧은 안내문을 붙여넣어 보내세요.</div>`:""}
   <div class="muted" style="font-size:12px;line-height:1.6">대부분의 AI 사이트는 다른 페이지 안에 넣는 것을 막아 두어서, 이 화면 안에 끼우지 않고 별도 창으로 엽니다. 창이 열리지 않으면 브라우저의 팝업 허용을 확인하세요.</div>
   <details><summary>보낼 내용 미리보기${can?` (${buildPrompt().length.toLocaleString()}자)`:""}</summary>${can?`<pre>${esc(buildPrompt())}</pre>`:""}</details>
@@ -410,14 +464,14 @@ async function openAi(i){
   window.open(url,"_blank",feat);   // 클릭 직후에 열어야 팝업이 차단되지 않는다
   if(S.asFile){
     try{
-      const r=await api("/api/bundle",{date:S.sel,question:S.question,plan:S.plan&&S.hasPlan});
+      const r=await api("/api/bundle",{date:S.sel,question:S.question,plan:S.plan&&S.hasPlan,ref:S.ref&&S.hasRef});
       let hint="첨부한 파일의 질문에 답해 주세요.";
       try{await copyText(hint)}catch(e){}
       toast(r.revealed?`탐색기에서 AI용 파일이 선택되어 있습니다(안 보이면 ${r.path}). ${name} 창에 끌어다 놓고 붙여넣기(안내문 복사됨)`:`파일을 만들었습니다: ${r.path}`);
     }catch(e){toast(e.error||"파일을 만들지 못했습니다")}
     return;
   }
-  try{await copyText(buildPrompt());toast(`복사했습니다. ${name} 창에 붙여넣으세요`)}catch(e){toast("복사하지 못했습니다. 미리보기에서 직접 선택해 복사하세요")}
+  try{await copyText(await promptText());toast(`복사했습니다. ${name} 창에 붙여넣으세요`)}catch(e){toast("복사하지 못했습니다. 미리보기에서 직접 선택해 복사하세요")}
 }
 function ssModal(ex){
   const inp=(id,lab,extra="")=>`<div class="fld" ${extra}><label for="${id}" class="lab">${lab}</label><input id="${id}" type="text" autocomplete="off"></div>`;
@@ -526,14 +580,15 @@ async function handleFiles(files){
   refreshUpload();
   await afterUpload();
 }
-const AI_ALIAS={gpt:"ChatGPT",chatgpt:"ChatGPT",openai:"ChatGPT",gemini:"Gemini",claude:"Claude",perplexity:"Perplexity",grok:"Grok",copilot:"Copilot"};
+const AI_ALIAS={gpt:"ChatGPT",chatgpt:"ChatGPT",openai:"ChatGPT",gemini:"gemini",claude:"claude",claud:"claude",cladue:"claude",perplexity:"Perplexity",grok:"Grok",copilot:"Copilot"};
 function aiFromName(name){
   const m=name.match(/\d{4}-\d{2}-\d{2}[_\-\s]+(.+?)\.md$/i);if(!m)return "";
   const k=m[1].trim();return AI_ALIAS[k.toLowerCase().replace(/[\s_.\-]+/g,"")]||k;
 }
 async function addFeedbackFile(name,txt){
   const m=name.match(/(\d{4}-\d{2}-\d{2})/);const day=m?m[1]:S.sel;
-  const ai=aiFromName(name)||"기타";
+  const ai=aiFromName(name);
+  if(!ai)return {name,state:"err",error:"파일 이름에 AI 이름이 없습니다. 2026-11-05_gpt.md 처럼 날짜_AI이름.md 로 바꿔 주세요"};
   if(!day)return {name,state:"err",error:"피드백을 붙일 날짜를 알 수 없습니다. 날짜를 고르거나 파일 이름에 2026-11-05 형식을 넣으세요"};
   if(!S.days.some(d=>d.date===day))return {name,state:"err",error:`${day} 리포트가 없습니다. 리포트를 먼저 가져오세요`};
   try{const r=await api("/api/feedback",{date:day,ai,text:txt,mode:"append"});return {name,state:"ok",date:day,fb:true,dup:!!r.duplicate,ai}}
@@ -569,7 +624,7 @@ document.addEventListener("click",async ev=>{
   const t=ev.target.closest("[data-act],[data-tab],[data-day],[data-q],[data-preset],[data-overwrite],[data-overlay],[data-week],[data-ai]");
   if(!t)return;
   if(t.dataset.overlay!==undefined){if(ev.target===t&&!(S.g&&S.g.running))closeModal();return}
-  if(t.dataset.tab){S.tab=t.dataset.tab;store("tab",S.tab);renderTabs();layout();return}   // 메인을 다시 그리지 않아 입력 중인 메모가 유지된다
+  if(t.dataset.tab){S.tab=t.dataset.tab;store("tab",S.tab);renderTabs();layout();if(S.tab==="docs")showDocs();return}   // 메인을 다시 그리지 않아 입력 중인 메모가 유지된다
   if(t.dataset.week){const wk=t.dataset.week;setWeek(wk,!S.openWeeks.has(wk));renderSide();return}
   if(t.dataset.ai!==undefined)return openAi(+t.dataset.ai);
   if(t.dataset.day)return selectDay(t.dataset.day);
@@ -578,6 +633,34 @@ document.addEventListener("click",async ev=>{
   if(t.dataset.overwrite)return overwrite(+t.dataset.overwrite);
   switch(t.dataset.act){
     case"open-garmin":return openGarmin();
+    case"doc-open":return openDoc(t.dataset.kind,t.dataset.name);
+    case"doc-upload":S.docs.upKind=t.dataset.kind;$("#doc-fi").click();return;
+    case"doc-edit":S.docs.edit=true;renderDocs();$("#doc-text")&&$("#doc-text").focus();return;
+    case"doc-cancel":if(S.docs.isNew)S.docs.sel=null;S.docs.edit=false;S.docs.isNew=false;renderDocs();return;
+    case"doc-new":{
+      const kind=t.dataset.kind;
+      openModal(`<h2>새 문서</h2><div class="fld"><label for="nd-name" class="lab">파일 이름 (.md 는 자동으로 붙습니다)</label><input id="nd-name" type="text" autocomplete="off" placeholder="${kind==="plan"?"훈련 방향":"RPE 기준표"}"></div><div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">취소</button><button class="btn primary" data-act="doc-create" data-kind="${kind}">만들기</button></div>`);
+      setTimeout(()=>{const i=$("#nd-name");i&&i.focus()},0);return;
+    }
+    case"doc-create":{
+      let n=$("#nd-name").value.trim();if(!n){toast("이름을 입력하세요");return}
+      if(!/\.md$/i.test(n))n+=".md";
+      const kind=t.dataset.kind,ex=((S.docs.kinds.find(k=>k.kind===kind)||{items:[]}).items).some(i=>i.name===n);
+      closeModal();
+      if(ex)return openDoc(kind,n);
+      Object.assign(S.docs,{sel:{kind,name:n},text:`# ${n.replace(/\.md$/i,"")}\n\n`,edit:true,isNew:true});renderDocs();$("#doc-text")&&$("#doc-text").focus();return;
+    }
+    case"doc-save":{
+      const {kind,name}=S.docs.sel;t.disabled=true;
+      try{const r=await api("/api/doc",{kind,name,text:$("#doc-text").value});S.docs.text=$("#doc-text").value;S.docs.edit=false;S.docs.isNew=false;await showDocs();await loadDays();renderClaude();toast(r.unchanged?"바뀐 내용이 없습니다":"저장했습니다")}
+      catch(e){toast(e.error);t.disabled=false}
+      return;
+    }
+    case"doc-delete":{
+      const {kind,name}=S.docs.sel;if(!confirm(`'${name}' 을(를) 삭제할까요? (파일은 _삭제 폴더로 옮겨집니다)`))return;
+      try{await api("/api/doc/delete",{kind,name});S.docs.sel=null;await showDocs();await loadDays();renderClaude();toast("삭제했습니다")}catch(e){toast(e.error)}
+      return;
+    }
     case"open-upload":return openUpload();
     case"open-account":return accountModal();
     case"apply-inbox":{
@@ -614,7 +697,7 @@ document.addEventListener("click",async ev=>{
       S.ais=list;store("ais",JSON.stringify(list));renderClaude();toast("AI 목록을 저장했습니다");return;
     }
     case"copy-prompt":
-      try{await copyText(buildPrompt());toast("복사했습니다. Claude 창에 붙여넣으세요")}catch(e){toast("복사하지 못했습니다. 미리보기에서 직접 선택해 복사하세요")}
+      try{await copyText(await promptText());toast("복사했습니다. AI 창에 붙여넣으세요")}catch(e){toast("복사하지 못했습니다. 미리보기에서 직접 선택해 복사하세요")}
       return;
     case"rebuild":
       t.disabled=true;
@@ -675,6 +758,8 @@ document.addEventListener("change",ev=>{
   else if(t.id==="fi"){handleFiles(t.files);t.value=""}
   else if(t.id==="asfile"){S.asFile=t.checked;store("asfile",t.checked?"1":"0");renderClaude()}
   else if(t.id==="plan"){S.plan=t.checked;store("plan",t.checked?"1":"0")}
+  else if(t.id==="ref"){S.ref=t.checked;store("ref",t.checked?"1":"0")}
+  else if(t.id==="doc-fi"){docUpload(S.docs.upKind,t.files);t.value=""}
   else if(t.id==="popup"){S.popup=t.checked;store("popup",t.checked?"1":"0")}
 });
 document.addEventListener("keydown",ev=>{if(ev.key==="Escape"&&!(S.g&&S.g.running))closeModal()});
@@ -684,10 +769,14 @@ window.addEventListener("beforeunload",ev=>{if(S.dirty.size){ev.preventDefault()
 /* 파일 드래그 앤 드롭: 화면 어디에 놓아도 된다 */
 let dragDepth=0;
 const hasFiles=ev=>ev.dataTransfer&&[...(ev.dataTransfer.types||[])].includes("Files");
-window.addEventListener("dragenter",ev=>{if(hasFiles(ev)){dragDepth++;$("#drop").hidden=false}});
+window.addEventListener("dragenter",ev=>{if(hasFiles(ev)){dragDepth++;if(S.tab!=="docs")$("#drop").hidden=false}});
 window.addEventListener("dragleave",ev=>{if(hasFiles(ev)){dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)$("#drop").hidden=true}});
 window.addEventListener("dragover",ev=>{if(hasFiles(ev))ev.preventDefault()});
-window.addEventListener("drop",ev=>{if(!hasFiles(ev))return;ev.preventDefault();dragDepth=0;$("#drop").hidden=true;handleFiles(ev.dataTransfer.files)});
+window.addEventListener("drop",ev=>{
+  if(!hasFiles(ev))return;ev.preventDefault();dragDepth=0;$("#drop").hidden=true;
+  const dk=S.tab==="docs"&&ev.target.closest&&ev.target.closest("[data-kind-drop]");
+  if(dk)docUpload(dk.dataset.kindDrop,ev.dataTransfer.files);else handleFiles(ev.dataTransfer.files);
+});
 
 /* ---------- start ---------- */
 (async()=>{

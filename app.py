@@ -295,7 +295,8 @@ def api_feedback_save(body: dict) -> dict:
         if mode == "append":
             if not text.strip():
                 raise ApiError(400, "추가할 내용이 없습니다")
-            if text in old:
+            sections = [x.strip() for x in re.split(r"(?m)^\s*-{3,}\s*$", old)]
+            if text.strip() in sections:  # 구분선으로 나뉜 항목과 통째로 같을 때만 중복 (일부 포함은 중복 아님)
                 duplicate = True
             else:
                 text = f"{old}\n\n---\n\n{text}" if old else text

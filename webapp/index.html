@@ -529,7 +529,7 @@ async function handleFiles(files){
 const AI_ALIAS={gpt:"ChatGPT",chatgpt:"ChatGPT",openai:"ChatGPT",gemini:"Gemini",claude:"Claude",perplexity:"Perplexity",grok:"Grok",copilot:"Copilot"};
 function aiFromName(name){
   const m=name.match(/\d{4}-\d{2}-\d{2}[_\-\s]+(.+?)\.md$/i);if(!m)return "";
-  const k=m[1].trim();return AI_ALIAS[k.toLowerCase()]||k;
+  const k=m[1].trim();return AI_ALIAS[k.toLowerCase().replace(/[\s_.\-]+/g,"")]||k;
 }
 async function addFeedbackFile(name,txt){
   const m=name.match(/(\d{4}-\d{2}-\d{2})/);const day=m?m[1]:S.sel;

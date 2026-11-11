@@ -117,6 +117,12 @@ AI_ALIASES = {"gpt": "ChatGPT", "chatgpt": "ChatGPT", "openai": "ChatGPT", "gemi
               "perplexity": "Perplexity", "grok": "Grok", "copilot": "Copilot"}
 
 
+def canon_ai(name: str) -> str:
+    """AI 이름 표기를 하나로 통일한다. gpt / chatgpt / Chat GPT / chat-gpt / openai → ChatGPT. 그 외는 입력 그대로."""
+    key = re.sub(r"[\s_.\-]+", "", name.strip().lower())
+    return AI_ALIASES.get(key, name.strip())
+
+
 def inbox_dir() -> Path:
     """피드백 파일을 모아 두는 폴더. .env의 FEEDBACK_INBOX(절대 경로 또는 프로젝트 기준 상대 경로), 기본은 inbox/."""
     raw = os.getenv("FEEDBACK_INBOX") or load_env_file().get("FEEDBACK_INBOX")
@@ -275,6 +281,8 @@ def api_feedback_save(body: dict) -> dict:
     day, ai, text, mode = body.get("date"), body.get("ai"), body.get("text"), body.get("mode", "set")
     if not valid_day(day) or not isinstance(text, str) or mode not in ("set", "append"):
         raise ApiError(400, "요청 형식이 올바르지 않습니다")
+    if isinstance(ai, str):
+        ai = canon_ai(ai)
     if not valid_ai(ai):
         raise ApiError(400, "AI 이름이 올바르지 않습니다 (한글·영문·숫자·공백·._- 만, 40자 이내)")
     if len(text) > 2 * 1024 * 1024:
@@ -324,7 +332,7 @@ def migrate_feedback() -> int:
                     continue
                 m = re.match(r"##\s*\[([^\]\n]+)\]\s*\n?", chunk)
                 ai, body = (m.group(1).strip(), chunk[m.end():].strip()) if m else ("기타", chunk)
-                ai = AI_ALIASES.get(ai.lower(), ai)
+                ai = canon_ai(ai)
                 if not valid_ai(ai):
                     ai, body = "기타", chunk
                 if body:
@@ -339,6 +347,39 @@ def migrate_feedback() -> int:
         except (OSError, UnicodeDecodeError, ApiError) as err:
             print(f"피드백 이전 실패: {f.name} ({err})", file=sys.stderr)
     return moved
+
+
+def merge_ai_folders() -> int:
+    """feedback/ 아래 폴더 이름이 gpt, chatgpt, Chat GPT처럼 제각각이면 하나(ChatGPT)로 합친다. 같은 날짜 파일은 이어 붙인다."""
+    root = CFG["feedback"]
+    if not root.is_dir():
+        return 0
+    merged = 0
+    for d in sorted(root.iterdir()):
+        if not (d.is_dir() and valid_ai(d.name)):
+            continue
+        canon = canon_ai(d.name)
+        if canon == d.name:
+            continue
+        tmp = root / f"_합치는중_{d.name}"
+        try:
+            os.replace(d, tmp)  # 대소문자만 다른 경우(Windows)도 안전하게 이름을 바꾸기 위해 항상 임시 이름을 거친다
+            target = root / canon
+            if not target.exists():
+                os.replace(tmp, target)
+            else:
+                for f in sorted(tmp.glob("*.md")):
+                    if valid_day(f.stem):
+                        api_feedback_save({"date": f.stem, "ai": canon, "text": f.read_text(encoding="utf-8-sig"), "mode": "append"})
+                        f.unlink()
+                try:
+                    tmp.rmdir()
+                except OSError:
+                    print(f"합친 뒤 남은 파일이 있어 {tmp.name} 폴더를 남겨 둡니다", file=sys.stderr)
+            merged += 1
+        except (OSError, UnicodeDecodeError, ApiError) as err:
+            print(f"피드백 폴더 합치기 실패: {d.name} ({err})", file=sys.stderr)
+    return merged
 
 
 def api_bundle(body: dict) -> dict:
@@ -372,7 +413,7 @@ def api_inbox_apply(body: dict) -> dict:
     for f in inbox_files():
         m = INBOX_NAME_RE.match(f.name)
         day, ai = m.group(1), m.group(2).strip()
-        label = AI_ALIASES.get(ai.lower(), ai)
+        label = canon_ai(ai)
         r = {"name": f.name, "date": day, "ai": label}
         try:
             if not valid_day(day):
@@ -646,6 +687,9 @@ def main() -> int:
     CFG["outbox"] = CFG["reports"].parent / "outbox"
     CFG["inbox"] = CFG["reports"].parent / "inbox"
     n = migrate_feedback()
+    m = merge_ai_folders()
+    if m:
+        print(f"이름이 다른 AI 피드백 폴더 {m}개를 하나로 합쳤습니다")
     if n:
         print(f"예전 피드백 파일 {n}개를 AI별 폴더로 옮겼습니다 (원본: feedback/_이전)")
     if args.host not in ("127.0.0.1", "localhost", "::1"):

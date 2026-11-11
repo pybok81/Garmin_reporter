@@ -278,7 +278,8 @@ class ApiError(Exception):
 
 def api_days() -> dict:
     return {"today": date.today().isoformat(), "days": list_days(), "reportsDir": str(CFG["reports"]),
-            "hasPlan": bool(doc_names("plan")), "hasRef": bool(doc_names("reference"))}
+            "hasPlan": bool(doc_names("plan")), "hasRef": bool(doc_names("reference")),
+            "rpeDoc": next((n for n in doc_names("reference") if "rpe" in n.lower()), None)}
 
 
 def api_report(day: str) -> dict:

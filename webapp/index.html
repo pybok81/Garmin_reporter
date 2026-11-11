@@ -263,7 +263,7 @@ function exercisesIn(before){
 function noteForm(id,body,before,i){
   const {fields,extra}=parseFields(body),ex=exercisesIn(before);
   return `<section class="nb" data-id="${esc(id)}" data-ex="${esc(JSON.stringify(ex))}"><div class="nbt">메모 (바로 편집 · 저장하면 .md에 반영)</div>`+
-    fields.map((f,j)=>`<div class="fr"><label for="f${i}_${j}">${esc(f.label)}</label><textarea id="f${i}_${j}" rows="1" data-label="${esc(f.label)}">${esc(f.value)}</textarea></div>`).join("")+
+    fields.map((f,j)=>`<div class="fr"><label for="f${i}_${j}">${esc(f.label)}${S.rpeDoc&&/RPE/i.test(f.label)?`<br><button type="button" class="btn small" data-act="open-rpe" style="min-height:28px;padding:0 8px;margin-top:4px">기준표 보기</button>`:""}</label><textarea id="f${i}_${j}" rows="1" data-label="${esc(f.label)}">${esc(f.value)}</textarea></div>`).join("")+
     (extra?`<div class="fr"><label>기타</label><textarea data-extra rows="2">${esc(extra)}</textarea></div>`:"")+
     `<div class="nbf"><button class="btn primary small" data-act="save-note" disabled>저장</button>${ex.length?`<button class="btn small" data-act="open-ss">슈퍼세트 표시</button>`:""}<span class="st"></span></div></section>`;
 }
@@ -292,7 +292,7 @@ function replaceNote(md,id,text){
 
 /* ---------- load ---------- */
 async function loadDays(keepSel=true){
-  const d=await api("/api/days");S.days=d.days;S.today=d.today;S.hasPlan=!!d.hasPlan;S.hasRef=!!d.hasRef;
+  const d=await api("/api/days");S.days=d.days;S.today=d.today;S.hasPlan=!!d.hasPlan;S.hasRef=!!d.hasRef;S.rpeDoc=d.rpeDoc||null;
   if(!keepSel||!S.days.some(x=>x.date===S.sel))S.sel=S.days.length?S.days[0].date:null;
 }
 async function loadReport(){
@@ -633,6 +633,13 @@ document.addEventListener("click",async ev=>{
   if(t.dataset.overwrite)return overwrite(+t.dataset.overwrite);
   switch(t.dataset.act){
     case"open-garmin":return openGarmin();
+    case"open-rpe":{
+      try{
+        const r=await api(`/api/doc?kind=reference&name=${encodeURIComponent(S.rpeDoc)}`);
+        openModal(`<h2>${esc(S.rpeDoc.replace(/\.md$/,""))}</h2><div class="rep">${renderMd(r.text)}</div><div class="row" style="justify-content:flex-end"><button class="btn primary" data-act="close">닫기</button></div>`);
+      }catch(e){toast(e.error)}
+      return;
+    }
     case"doc-open":return openDoc(t.dataset.kind,t.dataset.name);
     case"doc-upload":S.docs.upKind=t.dataset.kind;$("#doc-fi").click();return;
     case"doc-edit":S.docs.edit=true;renderDocs();$("#doc-text")&&$("#doc-text").focus();return;

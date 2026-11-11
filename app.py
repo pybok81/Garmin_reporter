@@ -521,9 +521,18 @@ def hr_jumps(s: dict) -> list[dict]:
         lo, hi = min(base), max(base)
         d = hr[i] - lo if hr[i] - lo >= HR_JUMP_BPM else (hr[i] - hi if hi - hr[i] >= HR_JUMP_BPM else 0)
         if d and t[i] - last_end > 60:
-            res.append({"t": t[i], "from": lo if d > 0 else hi, "to": hr[i], "pace": s["pace"][i], "cad": s["cad"][i]})
+            res.append({"t": t[i], "from": lo if d > 0 else hi, "to": hr[i], "pace": s["pace"][i], "cad": s["cad"][i], "lock": cadence_lock(s, t[i], d > 0)})
             last_end = t[i]
     return res
+
+
+def cadence_lock(s: dict, t0: float, up: bool) -> bool:
+    """점프 전후 90초 동안 심박이 케이던스와 거의 같은 값(±6)으로 붙어 있으면 '케이던스 락 의심'."""
+    lo, hi = (t0, t0 + 90) if up else (t0 - 90, t0)
+    pairs = [(h, c) for t, h, c in zip(s["t"], s["hr"], s["cad"]) if lo <= t <= hi and h and c]
+    if len(pairs) < 10:
+        return False
+    return sum(abs(h - c) <= 6 for h, c in pairs) / len(pairs) >= 0.6
 
 
 def day_series(day: str) -> list[dict]:
@@ -577,7 +586,7 @@ def series_text(day: str, mode: str) -> str:
             parts.append("심박 급변 구간 (30초 내 15bpm 이상, 당시 페이스/케이던스 함께 표기):")
             for j in a["jumps"]:
                 pc = f"{_mmss(j['pace'])}/km" if j["pace"] else "-"
-                parts.append(f"- {_mmss(j['t'])}: {j['from']}→{j['to']} bpm, 페이스 {pc}, 케이던스 {j['cad'] or '-'}")
+                parts.append(f"- {_mmss(j['t'])}: {j['from']}→{j['to']} bpm, 페이스 {pc}, 케이던스 {j['cad'] or '-'}" + (" ※ 점프 전후 심박이 케이던스와 거의 같은 값 → 케이던스 락 의심" if j["lock"] else ""))
         else:
             parts.append("심박 급변 구간: 없음")
         if mode == "full":

@@ -439,7 +439,7 @@ function lineSvg(a,key,label,color,inv,fmt){
 function graphBlock(){
   if(!S.ser.length)return "";
   return `<section class="fb"><div class="fbh"><h2>심박·페이스</h2></div>`+S.ser.map(a=>{
-    const jt=a.jumps.length?`<div style="font-size:12px;line-height:1.6;color:var(--z5)">심박 급변: ${a.jumps.map(j=>`${mmss(j.t)} ${j.from}→${j.to}bpm (페이스 ${j.pace?mmss(j.pace)+"/km":"-"}, 케이던스 ${j.cad||"-"})`).join(" · ")}</div>`:"";
+    const jt=a.jumps.length?`<div style="font-size:12px;line-height:1.6;color:var(--z5)">심박 급변: ${a.jumps.map(j=>`${mmss(j.t)} ${j.from}→${j.to}bpm (페이스 ${j.pace?mmss(j.pace)+"/km":"-"}, 케이던스 ${j.cad||"-"})${j.lock?" ※케이던스 락 의심":""}`).join(" · ")}</div>`:"";
     return `<h3 style="margin:10px 0 0">${esc(a.name)}</h3>${jt}${lineSvg(a,"hr","심박 (bpm)","var(--z5)",false,v=>Math.round(v))}${lineSvg(a,"pace","페이스 (/km, 위쪽이 빠름)","var(--z2)",true,mmss)}${lineSvg(a,"cad","케이던스 (spm)","var(--z3)",false,v=>Math.round(v))}`;
   }).join("")+`</section>`;
 }

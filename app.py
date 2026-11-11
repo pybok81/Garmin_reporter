@@ -456,7 +456,144 @@ def api_doc_delete(body: dict) -> dict:
     return {"ok": True}
 
 
-def compose_ai_text(day: str, question: str, with_plan: bool, with_ref: bool) -> str:
+# ---- 심박/페이스 시계열 -------------------------------------------------
+HR_JUMP_BPM, HR_JUMP_SEC = 15, 30   # 30초 안에 15bpm 이상 변하면 '급변'으로 표시
+
+
+def parse_series(details: dict) -> dict | None:
+    """get_activity_details JSON -> {t,hr,pace,cad} (초/ bpm / 초·km / spm). 구조가 달라도 죽지 않게 방어적으로 읽는다."""
+    try:
+        keys = {}
+        for d in details.get("metricDescriptors") or []:
+            keys[d.get("key")] = d.get("metricsIndex")
+        rows = [r.get("metrics") or [] for r in details.get("activityDetailMetrics") or []]
+        if not keys or not rows:
+            return None
+
+        def col(*names):
+            for n in names:
+                i = keys.get(n)
+                if i is not None:
+                    return i
+            return None
+        it, ihr, isp = col("sumDuration", "sumElapsedDuration"), col("directHeartRate"), col("directSpeed")
+        its = col("directTimestamp")
+        icd = col("directRunCadence", "directDoubleCadence")
+        if ihr is None or (it is None and its is None):
+            return None
+
+        def at(r, i):
+            return r[i] if i is not None and i < len(r) and isinstance(r[i], (int, float)) else None
+        out = {"t": [], "hr": [], "pace": [], "cad": []}
+        t0 = None
+        for r in rows:
+            if it is not None:
+                t = at(r, it)
+            else:
+                ts = at(r, its)
+                t0 = ts if t0 is None and ts is not None else t0
+                t = None if ts is None else (ts - t0) / 1000
+            if t is None:
+                continue
+            hr, sp, cd = at(r, ihr), at(r, isp), at(r, icd)
+            out["t"].append(round(t, 1))
+            out["hr"].append(round(hr) if hr else None)
+            out["pace"].append(round(1000 / sp) if sp and sp > 0.5 else None)   # 초/km
+            out["cad"].append(round(cd) if cd else None)
+        return out if len(out["t"]) > 5 else None
+    except (AttributeError, TypeError, ValueError, IndexError):
+        return None
+
+
+def hr_jumps(s: dict) -> list[dict]:
+    """HR_JUMP_SEC 안에 HR_JUMP_BPM 이상 오른/내린 지점. 그 순간의 페이스·케이던스도 함께 돌려준다(센서 오류 vs 실제 판단용)."""
+    t, hr = s["t"], s["hr"]
+    res, last_end = [], -999
+    for i in range(len(t)):
+        if hr[i] is None:
+            continue
+        j = i
+        while j > 0 and t[i] - t[j - 1] <= HR_JUMP_SEC:
+            j -= 1
+        base = [h for h in hr[j:i] if h is not None]
+        if not base:
+            continue
+        lo, hi = min(base), max(base)
+        d = hr[i] - lo if hr[i] - lo >= HR_JUMP_BPM else (hr[i] - hi if hi - hr[i] >= HR_JUMP_BPM else 0)
+        if d and t[i] - last_end > 60:
+            res.append({"t": t[i], "from": lo if d > 0 else hi, "to": hr[i], "pace": s["pace"][i], "cad": s["cad"][i]})
+            last_end = t[i]
+    return res
+
+
+def day_series(day: str) -> list[dict]:
+    root = CFG["data"] / "raw" / day
+    out = []
+    if not root.is_dir():
+        return out
+    for d in sorted(root.glob("activity_*")):
+        f = d / "details.json"
+        if not f.is_file():
+            continue
+        try:
+            s = parse_series(json.loads(f.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+        if not s:
+            continue
+        name = d.name[len("activity_"):]
+        try:
+            summ = json.loads((d / "summary.json").read_text(encoding="utf-8"))
+            name = f"{summ.get('activityName') or name}"
+            kind = ((summ.get("activityTypeDTO") or {}).get("typeKey")) or ""
+        except (OSError, ValueError):
+            kind = ""
+        out.append({"id": d.name[len("activity_"):], "name": name, "type": kind, "series": s, "jumps": hr_jumps(s)})
+    return out
+
+
+def api_series(day: str) -> dict:
+    if not valid_day(day):
+        raise ApiError(400, "날짜 형식이 올바르지 않습니다")
+    return {"date": day, "activities": day_series(day)}
+
+
+def _mmss(sec: float) -> str:
+    sec = int(round(sec))
+    return f"{sec // 60}:{sec % 60:02d}"
+
+
+def series_text(day: str, mode: str) -> str:
+    """AI에 붙일 시계열 텍스트. mode: 'jumps'(급변 요약만) | 'full'(30초 간격 표 + 급변)."""
+    acts = day_series(day)
+    if not acts:
+        return ""
+    parts = [f"## {day} 심박·페이스 시계열 (Garmin 손목 광학센서 기준, 센서 오류 가능성 있음)", ""]
+    for a in acts:
+        s = a["series"]
+        hrs = [h for h in s["hr"] if h]
+        parts.append(f"### {a['name']} ({a['type']}) — 총 {_mmss(s['t'][-1])}, 심박 {min(hrs)}~{max(hrs)} bpm" if hrs else f"### {a['name']}")
+        if a["jumps"]:
+            parts.append("심박 급변 구간 (30초 내 15bpm 이상, 당시 페이스/케이던스 함께 표기):")
+            for j in a["jumps"]:
+                pc = f"{_mmss(j['pace'])}/km" if j["pace"] else "-"
+                parts.append(f"- {_mmss(j['t'])}: {j['from']}→{j['to']} bpm, 페이스 {pc}, 케이던스 {j['cad'] or '-'}")
+        else:
+            parts.append("심박 급변 구간: 없음")
+        if mode == "full":
+            parts += ["", "시간 | 심박 | 페이스(/km) | 케이던스"]
+            nxt = 0
+            for i, t in enumerate(s["t"]):
+                if t < nxt:
+                    continue
+                nxt = t + 30
+                pc = _mmss(s["pace"][i]) if s["pace"][i] else "-"
+                parts.append(f"{_mmss(t)} | {s['hr'][i] or '-'} | {pc} | {s['cad'][i] or '-'}")
+        parts.append("")
+    return "\n".join(parts)
+
+
+def compose_ai_text(day: str, question: str, with_plan: bool, with_ref: bool, graph: str = "") -> str:
     rp = report_path(day)
     if not rp.is_file():
         raise ApiError(404, "리포트가 없습니다")
@@ -468,6 +605,8 @@ def compose_ai_text(day: str, question: str, with_plan: bool, with_ref: bool) ->
             for n in names:
                 parts += [f"### {n[:-3]}", (doc_dir(kind) / n).read_text(encoding="utf-8-sig").replace("\r\n", "\n").strip(), ""]
     parts += [f"## {day} 훈련 리포트 (메모 포함)", rp.read_text(encoding="utf-8").replace("\r\n", "\n").strip(), ""]
+    if graph in ("jumps", "full"):
+        parts.append(series_text(day, graph))
     return "\n".join(parts)
 
 
@@ -476,7 +615,8 @@ def api_bundle(body: dict) -> dict:
     day, question = body.get("date"), body.get("question", "")
     if not valid_day(day) or not isinstance(question, str) or len(question) > 20000:
         raise ApiError(400, "요청 형식이 올바르지 않습니다")
-    text = compose_ai_text(day, question, bool(body.get("plan")), bool(body.get("ref")))
+    text = compose_ai_text(day, question, bool(body.get("plan")), bool(body.get("ref")),
+                           body.get("graph") if body.get("graph") in ("jumps", "full") else "")
     if body.get("textOnly"):
         return {"ok": True, "text": text}
     out = CFG["outbox"] / f"AI용_{day}.md"
@@ -724,6 +864,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(200, api_report((q.get("date") or [""])[0]))
                 elif url.path == "/api/feedback":
                     self._json(200, api_feedback_get((q.get("date") or [""])[0]))
+                elif url.path == "/api/series":
+                    self._json(200, api_series((q.get("date") or [""])[0]))
                 elif url.path == "/api/docs":
                     self._json(200, api_docs())
                 elif url.path == "/api/doc":

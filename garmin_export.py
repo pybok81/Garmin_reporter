@@ -46,6 +46,7 @@ ACTIVITY_ENDPOINTS: dict[str, Callable[[Garmin, str], Any]] = {
     "exercise_sets": lambda c, a: c.get_activity_exercise_sets(a),
     "hr_zones": lambda c, a: c.get_activity_hr_in_timezones(a),
     "splits": lambda c, a: c.get_activity_splits(a),
+    "details": lambda c, a: c.get_activity_details(a),  # 심박/속도/케이던스 시계열
 }
 
 

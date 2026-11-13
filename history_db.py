@@ -13,6 +13,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+import corrections as corr
 from import_export import SCHEMA
 
 KST = dt.timezone(dt.timedelta(hours=9))
@@ -58,7 +59,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     return db
 
 
-def _activity_row(day: str, entry: dict, adir: Path) -> tuple | None:
+def _activity_row(day: str, entry: dict, adir: Path, fixes: list[dict] | None = None) -> tuple | None:
     aid = entry.get("activityId")
     if aid is None:
         return None
@@ -71,6 +72,8 @@ def _activity_row(day: str, entry: dict, adir: Path) -> tuple | None:
     start = entry.get("startTimeLocal") or sd.get("startTimeLocal")
     dur, dist = pick("duration"), pick("distance")
     sets = (_load(adir / "exercise_sets.json") or {}).get("exerciseSets") or []
+    if fixes:
+        sets = corr.apply_sets(sets, fixes)[0]   # 직접 수정한 세트 반영 (삭제·반복 수 변경)
     real = [s for s in sets if s.get("setType") != "REST"]
     n_sets = len(real) if real else pick("totalSets")
     n_reps = sum(s.get("repetitionCount") or 0 for s in real) if real else pick("totalReps")
@@ -93,14 +96,16 @@ def _activity_row(day: str, entry: dict, adir: Path) -> tuple | None:
             n_sets, n_reps, *z)
 
 
-def sync_day(db: sqlite3.Connection, day_dir: Path) -> dict:
+def sync_day(db: sqlite3.Connection, day_dir: Path, corr_root: Path | None = None) -> dict:
     """하루 원본 폴더 하나를 DB에 반영(같은 키는 덮어씀). 반영한 건수를 돌려준다."""
     day = day_dir.name
+    fixes = corr.load(corr_root, day) if corr_root else {}
     n = {"activities": 0, "daily": 0, "sleep": 0, "health_status": 0, "readiness": 0}
 
     acts = (_load(day_dir / "activities.json") or {}).get("activities") or []
     for e in acts:
-        row = _activity_row(day, e, day_dir / f"activity_{e.get('activityId')}")
+        row = _activity_row(day, e, day_dir / f"activity_{e.get('activityId')}",
+                            corr.for_activity(fixes, e.get("activityId")))
         if row:
             db.execute("INSERT OR REPLACE INTO activities VALUES(" + ",".join("?" * 26) + ")", row)
             n["activities"] += 1
@@ -149,13 +154,13 @@ def sync_day(db: sqlite3.Connection, day_dir: Path) -> dict:
     return n
 
 
-def sync_all(db_path: Path, raw_root: Path, days: list[str] | None = None) -> dict:
+def sync_all(db_path: Path, raw_root: Path, days: list[str] | None = None, corr_root: Path | None = None) -> dict:
     """raw_root 아래 날짜 폴더를 모두(또는 days만) DB에 반영한다."""
     db = connect(db_path)
     total: dict[str, int] = {}
     try:
         for d in sorted(p for p in Path(raw_root).glob("????-??-??") if p.is_dir() and (not days or p.name in days)):
-            for k, v in sync_day(db, d).items():
+            for k, v in sync_day(db, d, corr_root).items():
                 total[k] = total.get(k, 0) + v
             total["days"] = total.get("days", 0) + 1
         db.execute("INSERT OR REPLACE INTO meta VALUES('synced_at',?)", (dt.datetime.now(KST).isoformat(timespec="seconds"),))
@@ -184,5 +189,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="앱이 받은 하루 원본을 이력 DB에 반영")
     ap.add_argument("--db", default="data/history.db")
     ap.add_argument("--raw", default="data/raw")
+    ap.add_argument("--corrections", default=".", help="corrections/ 폴더의 부모")
     a = ap.parse_args()
-    print(sync_all(Path(a.db), Path(a.raw)))
+    print(sync_all(Path(a.db), Path(a.raw), None, Path(a.corrections)))

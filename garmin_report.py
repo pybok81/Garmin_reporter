@@ -6,6 +6,7 @@
 - 마커 바깥에 직접 쓴 글은 재생성 시 사라진다. 메모는 반드시 마커 안쪽에.
 - 원본에 더 이상 없는 ID의 메모는 맨 아래 '연결된 운동 없음' 구역에 보존된다.
 - 웨이트 세트는 Garmin 운동 세트(사용자가 앱에서 수정한 값)를 그대로 쓴다.
+- 앱에서 직접 고친 세트는 corrections/<날짜>.json 에 따로 저장되고, 여기서 덮어씌워 표시한다(✎).
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ import tomllib
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+import corrections as corr
 
 WEEKDAYS = "월화수목금토일"
 NOTE_RE = re.compile(r"<!-- notes:([\w-]+) -->\n?(.*?)<!-- /notes -->", re.DOTALL)
@@ -242,12 +245,16 @@ def weight_kg(raw_w: Any, unit: str, grams_likely: bool) -> float | None:
     return float(raw_w)
 
 
-def strength_section(sets_json: Any, names: dict[str, str], unit_cfg: str) -> list[str]:
+def strength_section(sets_json: Any, names: dict[str, str], unit_cfg: str,
+                     fixes: list[dict] | None = None) -> list[str]:
     sets_json = ok(sets_json)
     sets = (sets_json or {}).get("exerciseSets") if isinstance(sets_json, dict) else None
     if not sets:
         return ["", "_세트 기록 없음 (Garmin 운동 세트가 비어 있음)_"]
 
+    before = sets
+    sets, fix_warn, fix_done = corr.apply_sets(sets, fixes or [])
+    fix_lines = corr.describe(before, fixes, names, fix_done) if fixes else []
     weights = [s.get("weight") for s in sets if isinstance(s.get("weight"), (int, float)) and s["weight"] > 0]
     grams_likely = bool(weights) and max(weights) >= 1000  # 1000 이상이면 g으로 추정
     unit_note = {"g": "g 단위로 설정됨", "kg": "kg 단위로 설정됨"}.get(
@@ -261,9 +268,11 @@ def strength_section(sets_json: Any, names: dict[str, str], unit_cfg: str) -> li
             continue
         ex = (s.get("exercises") or [{}])[0] or {}
         code = ex.get("name") or ex.get("category") or "UNKNOWN"
-        label = names.get(ex.get("name") or "") or names.get(ex.get("category") or "") or prettify(code)
+        label = s.get("_label") or names.get(ex.get("name") or "") or names.get(ex.get("category") or "") or prettify(code)
+        if s.get("_corrected"):
+            label += " ✎"
         reps = s.get("repetitionCount") or 0
-        w = weight_kg(s.get("weight"), unit_cfg, grams_likely)
+        w = s["_wkg"] if "_wkg" in s else weight_kg(s.get("weight"), unit_cfg, grams_likely)
         codes = [(ex.get("name") or "").upper(), (ex.get("category") or "").upper()]
         part = next((PARTS[c] for c in codes if c in PARTS), "미분류")
         if groups and groups[-1]["label"] == label:
@@ -306,12 +315,16 @@ def strength_section(sets_json: Any, names: dict[str, str], unit_cfg: str) -> li
         f"{k} {v[0]}세트·{v[1]}회" + (f"·{v[2]:,.0f}kg" if v[2] else "") for k, v in order)]
     if unlogged:
         out += ["", f"⚠️ 무게 미입력 세트 {unlogged}개(`무게?`) — 볼륨이 실제보다 적게 계산됨. 분석 시 신뢰도 낮음."]
+    if fix_lines:
+        out += ["", "✎ **직접 수정한 세트** (가민 기록을 사람이 고친 것, 원본은 그대로):"] + [f"- {t}" for t in fix_lines]
+    if fix_warn:
+        out += ["", "⚠️ 적용하지 못한 수정: " + " / ".join(fix_warn)]
     out += ["", f"휴식 합계 {fmt_hms(rest_total)} · 볼륨은 무게가 있는 세트만 합산 (맨몸 운동은 반복 수만 표시) · {unit_note}"]
     return out
 
 
 def activity_block(idx: int, entry: dict, adir: Path, names: dict[str, str], unit_cfg: str,
-                   saved_notes: dict[str, str]) -> list[str]:
+                   saved_notes: dict[str, str], fixes: list[dict] | None = None) -> list[str]:
     act_id = str(entry.get("activityId"))
     summary = ok(load_json(adir / "summary.json")) or {}
     sdto = summary.get("summaryDTO") or {}
@@ -354,7 +367,7 @@ def activity_block(idx: int, entry: dict, adir: Path, names: dict[str, str], uni
         out += lap_table(load_json(adir / "splits.json"), type_key in RUN_TYPES)
     if type_key == "strength_training" or ok(load_json(adir / "exercise_sets.json")) and \
             (ok(load_json(adir / "exercise_sets.json")) or {}).get("exerciseSets"):
-        out += strength_section(load_json(adir / "exercise_sets.json"), names, unit_cfg)
+        out += strength_section(load_json(adir / "exercise_sets.json"), names, unit_cfg, fixes)
 
     body = saved_notes.get(act_id, ACTIVITY_NOTE_TEMPLATE)
     out += ["", "**메모** (마커 안쪽에 쓰세요)", f"<!-- notes:{act_id} -->\n{body}<!-- /notes -->", ""]
@@ -370,11 +383,13 @@ def read_saved_notes(path: Path) -> dict[str, str]:
             for m in NOTE_RE.finditer(text)}
 
 
-def build_report(day: str, data_root: Path, report_path: Path, names: dict[str, str], unit_cfg: str) -> str | None:
+def build_report(day: str, data_root: Path, report_path: Path, names: dict[str, str], unit_cfg: str,
+                 corr_root: Path | None = None) -> str | None:
     raw = data_root / "raw" / day
     if not raw.exists():
         return None
     saved = read_saved_notes(report_path)
+    day_fixes = corr.load(corr_root, day) if corr_root else {}
     wd = WEEKDAYS[date.fromisoformat(day).weekday()]
     fetched = (load_json(raw / "daily.json") or {}).get("fetched_at", "-")
 
@@ -393,7 +408,8 @@ def build_report(day: str, data_root: Path, report_path: Path, names: dict[str, 
     for i, entry in enumerate(acts, 1):
         act_id = str(entry.get("activityId"))
         used.add(act_id)
-        lines += activity_block(i, entry, raw / f"activity_{act_id}", names, unit_cfg, saved)
+        lines += activity_block(i, entry, raw / f"activity_{act_id}", names, unit_cfg, saved,
+                                corr.for_activity(day_fixes, act_id))
 
     daily_body = saved.get("daily", DAILY_NOTE_TEMPLATE)
     lines += ["## 하루 메모", f"<!-- notes:daily -->\n{daily_body}<!-- /notes -->", ""]
@@ -413,6 +429,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--days", type=int, default=1, help="--date 포함 과거 N일 (백필용)")
     p.add_argument("--data", type=Path, default=Path("data"))
     p.add_argument("--reports", type=Path, default=Path("reports"))
+    p.add_argument("--corrections", type=Path, default=None, help="직접 수정 폴더의 부모 (기본: --reports 의 부모)")
     p.add_argument("--names", type=Path, default=Path("names.toml"), help="운동명/무게 단위 설정")
     return p.parse_args()
 
@@ -428,7 +445,7 @@ def main() -> int:
     for i in range(args.days - 1, -1, -1):
         day = (last - timedelta(days=i)).isoformat()
         path = args.reports / f"{day}.md"
-        text = build_report(day, args.data, path, names, unit_cfg)
+        text = build_report(day, args.data, path, names, unit_cfg, args.corrections or args.reports.parent)
         if text is None:
             print(f"{day}: 원본 없음 — 먼저 garmin_export.py --date {day} 를 실행하세요", file=sys.stderr)
             code = 1

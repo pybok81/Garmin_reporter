@@ -26,8 +26,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import corrections as corr
 import history_db
-from garmin_report import NOTE_RE
+from garmin_report import NOTE_RE, load_names, weight_kg
 
 ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "webapp"
@@ -275,7 +276,7 @@ def contiguous_runs(days: list[str]) -> list[tuple[str, int]]:
 
 # ---------------------------------------------------------------- API logic
 # ------------------------------------------------- 동기화 폴더(구글 드라이브) / 스냅샷
-SYNC_SUBDIRS = ("reports", "feedback", "plan", "reference")   # 동기화 폴더로 옮겨 가는 폴더 (원본 가민 JSON과 DB는 로컬에 둔다)
+SYNC_SUBDIRS = ("reports", "feedback", "plan", "reference", "corrections")   # 동기화 폴더로 옮겨 가는 폴더 (원본 가민 JSON과 DB는 로컬에 둔다)
 
 
 def apply_root(root: Path) -> None:
@@ -836,7 +837,8 @@ def api_rebuild(body: dict) -> dict:
         raise ApiError(409, "가민 가져오기가 진행 중입니다", code="busy")
     with FILE_LOCK:
         code, out = run_script([str(ROOT / "garmin_report.py"), "--date", day, "--days", "1",
-                                "--data", str(CFG["data"]), "--reports", str(CFG["reports"])], timeout=120)
+                                "--data", str(CFG["data"]), "--reports", str(CFG["reports"]),
+                                "--corrections", str(CFG["root"])], timeout=120)
     if code != 0:
         raise ApiError(500, "리포트를 다시 만들지 못했습니다", output=out)
     return {"ok": True, "output": out, "info": day_info(report_path(day))}
@@ -874,6 +876,97 @@ def api_sync(body: dict) -> dict:
     return {"ok": all(r["ok"] for r in results), "results": results, "db": db}
 
 
+# ---------------------------------------------------------------- 가민 데이터 직접 수정 (웨이트 세트)
+def activity_dir(day: str, act_id: str) -> Path:
+    return CFG["data"] / "raw" / day / f"activity_{act_id}"
+
+
+def raw_sets(day: str, act_id: str) -> list:
+    try:
+        data = json.loads((activity_dir(day, act_id) / "exercise_sets.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    sets = data.get("exerciseSets") if isinstance(data, dict) else None
+    return [s for s in sets if isinstance(s, dict)] if isinstance(sets, list) else []
+
+
+def api_sets_get(day: str, act_id: str) -> dict:
+    if not valid_day(day) or not act_id.isdigit():
+        raise ApiError(400, "날짜 또는 운동 번호가 올바르지 않습니다")
+    sets = raw_sets(day, act_id)
+    if not sets:
+        raise ApiError(404, "이 운동에는 가민 세트 기록이 없습니다")
+    names, unit_cfg = load_names(ROOT / "names.toml")
+    ws = [s.get("weight") for s in sets if isinstance(s.get("weight"), (int, float)) and s["weight"] > 0]
+    grams = bool(ws) and max(ws) >= 1000
+    fixes = {r["i"]: r for r in corr.for_activity(corr.load(CFG["root"], day), act_id)}
+    rows, n = [], 0
+    for s in sets:
+        if s.get("setType") == "REST":
+            continue
+        n += 1
+        code = corr.set_code(s)
+        rows.append({"i": n, "code": code, "label": names.get(code) or code.replace("_", " ").title(),
+                     "reps": s.get("repetitionCount") or 0,
+                     "weightKg": weight_kg(s.get("weight"), unit_cfg, grams) or 0,
+                     "duration": round(s.get("duration") or 0), "fix": fixes.get(n)})
+    return {"date": day, "id": act_id, "sets": rows,
+            "names": sorted(({"code": c, "label": l} for c, l in names.items()), key=lambda x: x["label"])}
+
+
+def api_sets_save(body: dict) -> dict:
+    day, act_id = str(body.get("date") or ""), str(body.get("id") or "")
+    if not valid_day(day) or not act_id.isdigit():
+        raise ApiError(400, "날짜 또는 운동 번호가 올바르지 않습니다")
+    sets = raw_sets(day, act_id)
+    if not sets:
+        raise ApiError(404, "이 운동에는 가민 세트 기록이 없습니다")
+    names, unit_cfg = load_names(ROOT / "names.toml")
+    ws = [s.get("weight") for s in sets if isinstance(s.get("weight"), (int, float)) and s["weight"] > 0]
+    grams = bool(ws) and max(ws) >= 1000
+    active = [s for s in sets if s.get("setType") != "REST"]
+
+    rows = []
+    for item in body.get("sets") or []:
+        if not isinstance(item, dict) or not isinstance(item.get("i"), int):
+            continue
+        i = item["i"]
+        if not 1 <= i <= len(active):
+            continue
+        src = active[i - 1]
+        was = corr.set_code(src)
+        row = {"i": i, "was": was}
+        if item.get("drop"):
+            row["drop"] = True
+        else:
+            code = str(item.get("exercise") or "").strip().upper().replace(" ", "_")[:60]
+            label = str(item.get("label") or "").strip()[:60]
+            if code and code != was:
+                row["exercise"] = code
+            if label and label != (names.get(code or was) or ""):
+                row["label"] = label
+            reps = item.get("reps")
+            if isinstance(reps, int) and 0 <= reps <= 999 and reps != (src.get("repetitionCount") or 0):
+                row["reps"] = reps
+            w = item.get("weightKg")
+            if isinstance(w, (int, float)) and 0 <= w <= 999 and round(float(w), 2) != round(weight_kg(src.get("weight"), unit_cfg, grams) or 0, 2):
+                row["weight_kg"] = round(float(w), 2)
+        if len(row) > 2 or row.get("drop"):
+            rows.append(row)
+
+    with FILE_LOCK:
+        data = corr.load(CFG["root"], day)
+        acts = {k: v for k, v in (data.get("activities") or {}).items() if isinstance(v, dict)}
+        if rows:
+            acts[act_id] = {"sets": rows}
+        else:
+            acts.pop(act_id, None)
+        corr.save(CFG["root"], day, acts)
+    res = api_rebuild({"date": day})
+    db_sync([day])
+    return {"ok": True, "fixes": len(rows), "info": res.get("info")}
+
+
 # ---------------------------------------------------------------- 이력 DB
 def db_path() -> Path:
     return CFG["data"] / "history.db"
@@ -885,7 +978,7 @@ def db_sync(days: list[str] | None = None, create: bool = False) -> dict | None:
         return None
     try:
         with FILE_LOCK:
-            return history_db.sync_all(db_path(), CFG["data"] / "raw", days)
+            return history_db.sync_all(db_path(), CFG["data"] / "raw", days, CFG["root"])
     except Exception as err:  # noqa: BLE001 - DB는 부가 기능이라 가져오기 자체를 막지 않는다
         sys.stderr.write(f"이력 DB 반영 실패: {type(err).__name__}: {err}\n")
         return {"error": f"{type(err).__name__}: {err}"}
@@ -1006,6 +1099,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(200, api_report((q.get("date") or [""])[0]))
                 elif url.path == "/api/feedback":
                     self._json(200, api_feedback_get((q.get("date") or [""])[0]))
+                elif url.path == "/api/sets":
+                    self._json(200, api_sets_get((q.get("date") or [""])[0], (q.get("id") or [""])[0]))
                 elif url.path == "/api/db":
                     self._json(200, api_db_status())
                 elif url.path == "/api/series":
@@ -1035,6 +1130,7 @@ class Handler(BaseHTTPRequestHandler):
                     "/api/settings": api_settings_set,
                     "/api/snapshot": lambda body: make_snapshot(),
                     "/api/db/sync": api_db_sync,
+                    "/api/sets": api_sets_save,
                 }
                 fn = routes.get(url.path)
                 if fn is None:

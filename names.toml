@@ -13,6 +13,7 @@ bodyweight = [
   "JUMP_ROPE", "BENCH_DIP", "SINGLE_LEG_DEADLIFT",
   "HANGING_KNEE_RAISE", "MOUNTAIN_CLIMBER",
   "WEIGHTED_HANGING_LEG_RAISE", "DEAD_BUG", "SIDE_PLANK", "LUNGE",
+  "BIRD_DOG", "BIRD_DOG_ALTERNATE", "GLUTE_BRIDGE", "LEG_RAISE", "RUSSIAN_TWIST",
 ]
 
 [exercises]
@@ -52,10 +53,17 @@ HOLLOW_ROCK = "할로우 락"
 WIDE_STANCE_PLANK_WITH_LEG_LIFT = "와이드 플랭크 레그리프트"
 STANDING_T_ROTATION_BALANCE = "스탠딩 T 로테이션"
 JUMP_ROPE = "줄넘기"
+BIRD_DOG = "버드독"
+BIRD_DOG_ALTERNATE = "버드독 (좌우 교대)"
+GLUTE_BRIDGE = "글루트 브리지"
+HIP_THRUST = "힙 쓰러스트"
+LEG_RAISE = "레그 레이즈"
+RUSSIAN_TWIST = "러시안 트위스트"
 UNKNOWN = "미지정(Garmin Unknown)"
 
 # 부위 태그: 리포트 세트 표 아래에 '부위별 세트/반복/볼륨'을 합산해 보여 줍니다.
 # 하체 운동 다음날 일정(인터벌 등)을 정할 때 쓰는 기준입니다. 분류는 자유롭게 바꾸세요.
+
 [parts]
 SQUAT = "하체"
 DEADLIFT = "하체"
@@ -93,3 +101,9 @@ WEIGHTED_HANGING_LEG_RAISE = "코어"
 DEAD_BUG = "코어"
 SIDE_PLANK = "코어"
 JUMP_ROPE = "전신"
+BIRD_DOG = "코어"
+BIRD_DOG_ALTERNATE = "코어"
+GLUTE_BRIDGE = "하체"
+HIP_THRUST = "하체"
+LEG_RAISE = "코어"
+RUSSIAN_TWIST = "코어"

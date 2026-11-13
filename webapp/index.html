@@ -642,8 +642,10 @@ async function accountModal(){
     <div class="note">로그인 상태: <strong>${s.tokenExists?"토큰 있음 (비밀번호 없이 가져오기 가능)":"토큰 없음"}</strong><br>
     비밀번호는 이 앱에 입력하거나 저장하지 않습니다. 처음 한 번만 터미널에서 <code>${esc(s.loginCommand)}</code> 를 실행해 로그인하세요 (MFA 포함). 토큰이 만료되면 같은 명령을 다시 실행합니다.</div></section>
   <section style="display:flex;flex-direction:column;gap:6px"><span class="lab">저장 위치</span>
-    <div class="note">리포트: ${esc(s.reportsDir)}<br>가민 원본: ${esc(s.dataDir)}<br><span class="muted">폴더 변경은 <code>python app.py --reports 경로 --data 경로</code> 로 지정합니다.</span></div>
-    <div class="fld"><label for="ai-inbox" class="lab" style="font-weight:400">피드백 폴더 (AI에게 받은 <code>날짜_gpt.md</code> 파일을 넣어 두는 곳)</label><input id="ai-inbox" type="text" autocomplete="off" value="${esc(s.inbox)}"><span class="muted" style="font-size:12px">예: 다운로드 폴더 전체 경로. 비우면 앱 폴더의 <code>inbox</code>를 씁니다.</span></div></section>
+    <div class="fld"><label for="ai-root" class="lab" style="font-weight:400">데이터 폴더 (구글 드라이브가 동기화하는 폴더 안)</label><input id="ai-root" type="text" autocomplete="off" value="${s.rootIsDefault?"":esc(s.root)}" placeholder="비우면 앱 폴더를 씁니다 (${esc(s.root)})"><span class="muted" style="font-size:12px;line-height:1.6">리포트·피드백·훈련 계획·사전·백업(archive)이 이 폴더에 저장됩니다. 예: <code>G:\\내 드라이브\\Garmin</code> 처럼 전체 경로로 적으세요. 새 폴더가 비어 있으면 지금 파일을 복사해 가고, 원본은 지우지 않습니다.</span></div>
+    <div class="note">리포트: ${esc(s.reportsDir)}<br>가민 원본(동기화 안 함): ${esc(s.dataDir)}</div>
+    <div class="row" style="align-items:center"><button class="btn small" data-act="snapshot">백업 스냅샷 만들기</button><span class="muted" style="font-size:12px">리포트·피드백·계획·사전을 zip 하나로 묶어 <code>archive/</code>에 둡니다. 앱을 켤 때 이번 달 것이 없으면 자동으로 만듭니다.</span></div>
+    <div class="fld"><label for="ai-inbox" class="lab" style="font-weight:400">피드백 폴더 (AI에게 받은 <code>날짜_gpt.md</code> 파일을 넣어 두는 곳)</label><input id="ai-inbox" type="text" autocomplete="off" value="${esc(s.inbox)}"><span class="muted" style="font-size:12px">예: 다운로드 폴더 전체 경로. 비우면 데이터 폴더의 <code>inbox</code>를 씁니다.</span></div></section>
   <div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">닫기</button><button class="btn primary" data-act="save-account">저장</button></div>`);
 }
 
@@ -770,8 +772,17 @@ document.addEventListener("click",async ev=>{
       return;
     }
     case"save-account":{
-      try{S.settings=await api("/api/settings",{email:$("#ae").value.trim()||undefined,inbox:$("#ai-inbox").value});toast("저장했습니다");closeModal();refreshInbox()}catch(e){toast(e.error)}
+      try{
+        const r=await api("/api/settings",{email:$("#ae").value.trim()||undefined,inbox:$("#ai-inbox").value,root:$("#ai-root").value});S.settings=r;
+        toast(r.copied&&r.copied.length?`저장했습니다. 데이터 폴더로 복사: ${r.copied.join(", ")}`:"저장했습니다");closeModal();refreshInbox();
+        if(r.copied)await loadDays(true).then(()=>loadReport()).then(render)
+      }catch(e){toast(e.error)}
       return;
+    }
+    case"snapshot":{
+      t.disabled=true;
+      try{const r=await api("/api/snapshot",{});toast(`스냅샷을 만들었습니다 (${r.files}개 파일): ${r.path}`)}catch(e){toast(e.error)}
+      t.disabled=false;return;
     }
   }
 });

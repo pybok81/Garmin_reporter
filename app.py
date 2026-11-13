@@ -14,10 +14,12 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
 import webbrowser
+import zipfile
 from datetime import date, datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -41,6 +43,7 @@ FILE_LOCK = threading.RLock()  # 리포트 파일 쓰기
 SYNC_LOCK = threading.Lock()   # 가민 수집은 한 번에 하나만
 
 CFG = {
+    "root": ROOT,   # 동기화(구글 드라이브) 대상 폴더: reports/ feedback/ plan/ reference/ inbox/ archive/ 가 이 아래에 놓인다
     "reports": ROOT / "reports",
     "data": ROOT / "data",
     "feedback": ROOT / "feedback",
@@ -270,6 +273,94 @@ def contiguous_runs(days: list[str]) -> list[tuple[str, int]]:
 
 
 # ---------------------------------------------------------------- API logic
+# ------------------------------------------------- 데이터 폴더(구글 드라이브) / 스냅샷
+SYNC_SUBDIRS = ("reports", "feedback", "plan", "reference")   # 데이터 폴더로 옮겨 가는 폴더 (원본 가민 JSON과 DB는 로컬에 둔다)
+
+
+def apply_root(root: Path) -> None:
+    CFG["root"] = root
+    CFG["reports"] = root / "reports"
+    CFG["feedback"] = root / "feedback"
+    CFG["inbox"] = root / "inbox"
+    CFG["outbox"] = ROOT / "outbox"   # AI용 임시 파일은 동기화할 필요가 없다
+
+
+def configured_root() -> Path:
+    raw = os.getenv("DATA_ROOT") or load_env_file().get("DATA_ROOT")
+    return Path(raw).expanduser() if raw else ROOT
+
+
+def change_root(raw: str) -> dict:
+    """데이터 폴더를 바꾼다. 새 폴더 안에 없는 하위 폴더는 현재 것을 복사해 가고(원본은 지우지 않음), 바로 적용한다."""
+    raw = raw.strip()
+    new = ROOT if not raw else Path(raw).expanduser()
+    if not new.is_absolute():
+        raise ApiError(400, "데이터 폴더는 전체 경로(예: G:\\내 드라이브\\Garmin)로 적어 주세요")
+    new = new.resolve()
+    old = CFG["root"]
+    with FILE_LOCK:
+        try:
+            new.mkdir(parents=True, exist_ok=True)
+            probe = new / ".write_test"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+        except OSError as err:
+            raise ApiError(400, f"이 폴더에 쓸 수 없습니다: {err}") from None
+        copied = []
+        if new != old.resolve():
+            for sub in SYNC_SUBDIRS:
+                src, dst = (CFG["reports"] if sub == "reports" else old / sub), new / sub
+                if src.is_dir() and any(src.iterdir()) and (not dst.exists() or not any(dst.iterdir())):
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                    copied.append(sub)
+        set_env_key("DATA_ROOT", "" if new == ROOT else str(new))
+        apply_root(new)
+    return {"copied": copied}
+
+
+def snapshot_files() -> list[tuple[Path, str]]:
+    out = []
+    for sub, base in (("reports", CFG["reports"]), ("feedback", CFG["feedback"]),
+                      ("plan", doc_dir("plan")), ("reference", doc_dir("reference"))):
+        if not base.is_dir():
+            continue
+        for f in sorted(base.rglob("*.md")):
+            rel = f.relative_to(base)
+            if any(part.startswith("_") for part in rel.parts):   # _backup, _삭제, _이전, _반영됨 은 제외
+                continue
+            out.append((f, f"{sub}/{rel.as_posix()}"))
+    return out
+
+
+def make_snapshot() -> dict:
+    """리포트/피드백/계획/사전(.md)을 zip 하나로 묶어 데이터 폴더의 archive/ 에 둔다."""
+    files = snapshot_files()
+    if not files:
+        raise ApiError(400, "백업할 파일이 없습니다")
+    out_dir = CFG["root"] / "archive"
+    out = out_dir / f"스냅샷_{date.today().isoformat()}.zip"
+    with FILE_LOCK:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        tmp = out.with_suffix(".zip.tmp")
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+            for f, arc in files:
+                z.write(f, arc)
+        os.replace(tmp, out)
+    return {"ok": True, "path": str(out), "files": len(files), "bytes": out.stat().st_size}
+
+
+def auto_snapshot() -> str | None:
+    """이번 달 스냅샷이 없으면 하나 만든다 (시작할 때 한 번)."""
+    d = CFG["root"] / "archive"
+    month = date.today().strftime("%Y-%m")
+    if d.is_dir() and any(d.glob(f"스냅샷_{month}-*.zip")):
+        return None
+    try:
+        return make_snapshot()["path"]
+    except ApiError:
+        return None
+
+
 class ApiError(Exception):
     def __init__(self, status: int, message: str, **extra: object):
         super().__init__(message)
@@ -788,13 +879,17 @@ def api_settings_get() -> dict:
         "tokenExists": token_file().exists(),
         "reportsDir": str(CFG["reports"]),
         "dataDir": str(CFG["data"]),
+        "root": str(CFG["root"]),
+        "rootIsDefault": CFG["root"] == ROOT,
         "loginCommand": "python garmin.py export",
         "inbox": str(inbox_dir()),
     }
 
 
 def api_settings_set(body: dict) -> dict:
-    email, inbox = body.get("email"), body.get("inbox")
+    email, inbox, root = body.get("email"), body.get("inbox"), body.get("root")
+    if root is not None and (not isinstance(root, str) or len(root) > 500 or any(c in root for c in "\"'#\r\n\0")):
+        raise ApiError(400, "데이터 폴더 경로가 올바르지 않습니다")
     if email is not None:
         if not isinstance(email, str) or len(email) > 200 or not re.fullmatch(r"[^\s\"'#=]+@[^\s\"'#=]+", email.strip()):
             raise ApiError(400, "이메일 형식이 올바르지 않습니다")
@@ -808,7 +903,12 @@ def api_settings_set(body: dict) -> dict:
         set_env_key("GARMIN_EMAIL", email.strip())
     if inbox is not None:
         set_env_key("FEEDBACK_INBOX", inbox)
-    return api_settings_get()
+    copied = []
+    if root is not None:
+        target = ROOT if not root.strip() else Path(root.strip()).expanduser()
+        if not target.is_absolute() or target.resolve() != CFG["root"].resolve():   # 바뀐 경우에만 처리
+            copied = change_root(root)["copied"]
+    return {**api_settings_get(), "copied": copied}
 
 
 # ------------------------------------------------------------------- server
@@ -898,6 +998,7 @@ class Handler(BaseHTTPRequestHandler):
                     "/api/report/rebuild": api_rebuild,
                     "/api/garmin/sync": api_sync,
                     "/api/settings": api_settings_set,
+                    "/api/snapshot": lambda body: make_snapshot(),
                 }
                 fn = routes.get(url.path)
                 if fn is None:
@@ -920,16 +1021,21 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Garmin 리포트 웹앱")
     p.add_argument("--host", default="127.0.0.1", help="기본 127.0.0.1 (본인 PC에서만 접속)")
     p.add_argument("--port", type=int, default=8765)
-    p.add_argument("--reports", type=Path, default=ROOT / "reports")
+    p.add_argument("--reports", type=Path, default=None, help="리포트 폴더 (생략하면 데이터 폴더 설정/reports)")
     p.add_argument("--data", type=Path, default=ROOT / "data")
     p.add_argument("--no-browser", action="store_true", help="브라우저를 자동으로 열지 않음")
     args = p.parse_args()
-    CFG["reports"], CFG["data"] = args.reports.resolve(), args.data.resolve()
-    CFG["feedback"] = CFG["reports"].parent / "feedback"
-    CFG["outbox"] = CFG["reports"].parent / "outbox"
-    CFG["inbox"] = CFG["reports"].parent / "inbox"
+    CFG["data"] = args.data.resolve()
+    if args.reports:   # 예전 방식: 리포트 폴더의 부모를 데이터 폴더로 본다
+        apply_root(args.reports.resolve().parent)
+        CFG["reports"] = args.reports.resolve()
+    else:
+        apply_root(configured_root().resolve())
     n = migrate_feedback()
     m = merge_ai_folders()
+    snap = auto_snapshot()
+    if snap:
+        print(f"이번 달 백업 스냅샷을 만들었습니다: {snap}")
     if m:
         print(f"이름이 다른 AI 피드백 폴더 {m}개를 하나로 합쳤습니다")
     if n:
@@ -943,7 +1049,7 @@ def main() -> int:
         print(f"{args.host}:{args.port} 를 열 수 없습니다 ({err}). --port 로 다른 번호를 지정하세요.", file=sys.stderr)
         return 1
     url = f"http://{'127.0.0.1' if args.host in ('localhost', '::1') else args.host}:{args.port}/"
-    print(f"리포트 폴더: {CFG['reports']}\n실행 중: {url}  (종료: Ctrl+C)")
+    print(f"데이터 폴더: {CFG['root']}\n리포트 폴더: {CFG['reports']}\n실행 중: {url}  (종료: Ctrl+C)")
     if not args.no_browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:

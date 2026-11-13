@@ -26,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import history_db
 from garmin_report import NOTE_RE
 
 ROOT = Path(__file__).resolve().parent
@@ -869,7 +870,39 @@ def api_sync(body: dict) -> dict:
                 break
     finally:
         SYNC_LOCK.release()
-    return {"ok": all(r["ok"] for r in results), "results": results}
+    db = db_sync(days) if any(r["ok"] for r in results) else None
+    return {"ok": all(r["ok"] for r in results), "results": results, "db": db}
+
+
+# ---------------------------------------------------------------- 이력 DB
+def db_path() -> Path:
+    return CFG["data"] / "history.db"
+
+
+def db_sync(days: list[str] | None = None, create: bool = False) -> dict | None:
+    """data/raw 의 하루 원본을 이력 DB에 반영한다. DB가 없으면(create가 아닐 때) 아무것도 하지 않는다. 실패해도 예외를 내지 않는다."""
+    if not create and not db_path().is_file():
+        return None
+    try:
+        with FILE_LOCK:
+            return history_db.sync_all(db_path(), CFG["data"] / "raw", days)
+    except Exception as err:  # noqa: BLE001 - DB는 부가 기능이라 가져오기 자체를 막지 않는다
+        sys.stderr.write(f"이력 DB 반영 실패: {type(err).__name__}: {err}\n")
+        return {"error": f"{type(err).__name__}: {err}"}
+
+
+def api_db_status() -> dict:
+    st = history_db.status(db_path())
+    st["path"] = str(db_path())
+    st["rawDays"] = sum(1 for p in (CFG["data"] / "raw").glob("????-??-??") if p.is_dir()) if (CFG["data"] / "raw").is_dir() else 0
+    return st
+
+
+def api_db_sync(body: dict) -> dict:
+    res = db_sync(create=True)
+    if res is None or "error" in res:
+        raise ApiError(500, "이력 DB에 반영하지 못했습니다" + (f": {res['error']}" if res else ""))
+    return {"ok": True, "result": res, "status": api_db_status()}
 
 
 def api_settings_get() -> dict:
@@ -973,6 +1006,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(200, api_report((q.get("date") or [""])[0]))
                 elif url.path == "/api/feedback":
                     self._json(200, api_feedback_get((q.get("date") or [""])[0]))
+                elif url.path == "/api/db":
+                    self._json(200, api_db_status())
                 elif url.path == "/api/series":
                     self._json(200, api_series((q.get("date") or [""])[0]))
                 elif url.path == "/api/docs":
@@ -999,6 +1034,7 @@ class Handler(BaseHTTPRequestHandler):
                     "/api/garmin/sync": api_sync,
                     "/api/settings": api_settings_set,
                     "/api/snapshot": lambda body: make_snapshot(),
+                    "/api/db/sync": api_db_sync,
                 }
                 fn = routes.get(url.path)
                 if fn is None:

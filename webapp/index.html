@@ -636,6 +636,8 @@ async function accountModal(){
   openModal(`<h2>계정 설정</h2><div class="muted">불러오는 중…</div>`);
   try{S.settings=await api("/api/settings")}catch(e){openModal(`<h2>계정 설정</h2><div class="note">${esc(e.error)}</div><div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">닫기</button></div>`);return}
   const s=S.settings;
+  try{S.db=await api("/api/db")}catch(e){S.db={exists:false}}
+  const dbl=S.db.exists?`활동 ${S.db.tables.activities.rows.toLocaleString()}건 (${S.db.tables.activities.from} ~ ${S.db.tables.activities.to}) · 수면 ${S.db.tables.sleep.rows.toLocaleString()}일`:"아직 없습니다";
   openModal(`<h2>계정 설정</h2>
   <section style="display:flex;flex-direction:column;gap:10px"><span class="lab">Garmin Connect</span>
     <div class="fld"><label for="ae" class="lab" style="font-weight:400">이메일</label><input id="ae" type="email" autocomplete="off" value="${esc(s.email)}"></div>
@@ -645,6 +647,8 @@ async function accountModal(){
     <div class="fld"><label for="ai-root" class="lab" style="font-weight:400">동기화 폴더 (구글 드라이브가 동기화하는 폴더 안)</label><input id="ai-root" type="text" autocomplete="off" value="${s.rootIsDefault?"":esc(s.root)}" placeholder="비우면 앱 폴더를 씁니다 (${esc(s.root)})"><span class="muted" style="font-size:12px;line-height:1.6">리포트·피드백·훈련 계획·사전·백업(archive)이 이 폴더에 저장됩니다. 예: <code>G:\\내 드라이브\\Garmin</code> 처럼 전체 경로로 적으세요. 새 폴더가 비어 있으면 지금 파일을 복사해 가고, 원본은 지우지 않습니다.</span></div>
     <div class="note">리포트: ${esc(s.reportsDir)}<br>가민 원본 <code>data/</code> (이 PC에만 둠, 동기화 안 함): ${esc(s.dataDir)}</div>
     <div class="row" style="align-items:center"><button class="btn small" data-act="snapshot">백업 스냅샷 만들기</button><span class="muted" style="font-size:12px">리포트·피드백·계획·사전을 zip 하나로 묶어 <code>archive/</code>에 둡니다. 앱을 켤 때 이번 달 것이 없으면 자동으로 만듭니다.</span></div>
+    <div class="note">이력 DB (<code>data/history.db</code>, 이 PC에만 둠): <strong>${dbl}</strong><br><span class="muted">가져오기를 하면 새 날짜가 자동으로 DB에 반영됩니다. 이미 받아 둔 원본(<code>data/raw</code> ${S.db.rawDays||0}일)을 한꺼번에 반영하려면 아래 버튼을 누르세요. 가민 내보내기 파일로 처음 만들 때는 <code>python import_export.py 내보내기폴더</code> 를 실행합니다.</span></div>
+    <div class="row"><button class="btn small" data-act="db-sync">원본을 DB에 반영</button></div>
     <div class="fld"><label for="ai-inbox" class="lab" style="font-weight:400">피드백 폴더 (AI에게 받은 <code>날짜_gpt.md</code> 파일을 넣어 두는 곳)</label><input id="ai-inbox" type="text" autocomplete="off" value="${esc(s.inbox)}"><span class="muted" style="font-size:12px">예: 다운로드 폴더 전체 경로. 비우면 동기화 폴더의 <code>inbox</code>를 씁니다.</span></div></section>
   <div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">닫기</button><button class="btn primary" data-act="save-account">저장</button></div>`);
 }
@@ -778,6 +782,11 @@ document.addEventListener("click",async ev=>{
         if(r.copied)await loadDays(true).then(()=>loadReport()).then(render)
       }catch(e){toast(e.error)}
       return;
+    }
+    case"db-sync":{
+      t.disabled=true;
+      try{const r=await api("/api/db/sync",{});toast(`DB에 반영했습니다 (${r.result.days||0}일, 활동 ${r.result.activities||0}건)`)}catch(e){toast(e.error)}
+      t.disabled=false;return;
     }
     case"snapshot":{
       t.disabled=true;

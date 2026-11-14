@@ -4,7 +4,7 @@
     python app.py --port 9000 --no-browser
 
 - 리포트(.md)가 원본이다. 메모는 .md의 `<!-- notes:ID -->` 마커 안쪽만 고친다.
-- 가져오기는 기존 garmin.py sync / garmin_report.py 를 그대로 호출한다.
+- 가져오기는 garmin_export.py 로 수집한 뒤 garmin_report.py 를 (동기화 폴더 경로를 넘겨) 호출한다.
 - 127.0.0.1에만 열고, Host/Content-Type을 검사해서 다른 웹페이지가 이 서버를 건드리지 못하게 한다.
 """
 
@@ -650,7 +650,10 @@ def day_series(day: str) -> list[dict]:
             kind = ((summ.get("activityTypeDTO") or {}).get("typeKey")) or ""
         except (OSError, ValueError):
             kind = ""
-        out.append({"id": d.name[len("activity_"):], "name": name, "type": kind, "series": s, "jumps": hr_jumps(s)})
+        # 급변 탐지는 달리기·걷기처럼 속도가 있는 운동에만 한다. 웨이트·사이클 등은 세트/휴식마다 심박이 원래 크게 오르내린다.
+        moving = sum(p is not None for p in s["pace"]) >= len(s["pace"]) * 0.5 and kind not in ("indoor_cycling", "cycling")
+        out.append({"id": d.name[len("activity_"):], "name": name, "type": kind, "series": s,
+                    "detect": moving, "jumps": hr_jumps(s) if moving else []})
     return out
 
 
@@ -675,7 +678,9 @@ def series_text(day: str, mode: str) -> str:
         s = a["series"]
         hrs = [h for h in s["hr"] if h]
         parts.append(f"### {a['name']} ({a['type']}) — 총 {_mmss(s['t'][-1])}, 심박 {min(hrs)}~{max(hrs)} bpm" if hrs else f"### {a['name']}")
-        if a["jumps"]:
+        if not a["detect"]:
+            parts.append("심박 급변 탐지: 하지 않음 (속도가 있는 운동이 아니라 심박이 원래 오르내림)")
+        elif a["jumps"]:
             parts.append("심박 급변 구간 (30초 내 15bpm 이상, 당시 페이스/케이던스 함께 표기):")
             for j in a["jumps"]:
                 pc = f"{_mmss(j['pace'])}/km" if j["pace"] else "-"
@@ -866,7 +871,18 @@ def api_sync(body: dict) -> dict:
         results = []
         for last, count in contiguous_runs(days):
             first = (date.fromisoformat(last) - timedelta(days=count - 1)).isoformat()
-            code, out = run_script([str(ROOT / "garmin.py"), "sync", "--date", last, "--days", str(count)])
+            # 수집 -> 리포트 순서로 직접 호출한다. (garmin.py sync 는 리포트를 앱 폴더의 reports/ 에 만들어서,
+            # 동기화 폴더를 바꾼 뒤에는 새 리포트가 앱에 보이지 않았다.)
+            code, out = run_script([str(ROOT / "garmin_export.py"), "--date", last, "--days", str(count),
+                                    "--output", str(CFG["data"])])
+            if code != 0:
+                out = "수집 실패 — 리포트를 만들지 않았습니다.\n" + out
+            else:
+                with FILE_LOCK:
+                    code, out2 = run_script([str(ROOT / "garmin_report.py"), "--date", last, "--days", str(count),
+                                             "--data", str(CFG["data"]), "--reports", str(CFG["reports"]),
+                                             "--corrections", str(CFG["root"])], timeout=300)
+                out = (out + "\n" + out2).strip()[-4000:]
             results.append({"range": first if count == 1 else f"{first} ~ {last}", "ok": code == 0, "output": out})
             if code != 0:
                 break

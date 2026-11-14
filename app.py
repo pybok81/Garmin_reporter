@@ -136,7 +136,7 @@ def reveal_in_file_manager(path: Path) -> bool:
         return False
 
 
-INBOX_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})[_\-\s]+(.+)\.md$", re.IGNORECASE)
+INBOX_NAME_RE = re.compile(r"^(\d{4})[-_.]?(\d{2})[-_.]?(\d{2})(?:[\s_\-.]+(.+?))?\.md$", re.IGNORECASE)   # 2026-11-14_gpt.md / 20261114_gpt.md / 2026.11.14 gemini.md
 AI_ALIASES = {"gpt": "ChatGPT", "chatgpt": "ChatGPT", "openai": "ChatGPT",
               "gemini": "gemini", "claude": "claude", "claud": "claude", "cladue": "claude", "기타": "claude",
               "perplexity": "Perplexity", "grok": "Grok", "copilot": "Copilot"}
@@ -157,11 +157,52 @@ def inbox_dir() -> Path:
     return CFG["inbox"] or ROOT / "inbox"
 
 
+def inbox_match(name: str) -> tuple[str, str | None] | None:
+    """파일 이름에서 (YYYY-MM-DD, AI 이름 또는 None). 날짜로 시작하지 않으면 None."""
+    m = INBOX_NAME_RE.match(name)
+    return (f"{m.group(1)}-{m.group(2)}-{m.group(3)}", (m.group(4) or "").strip() or None) if m else None
+
+
+def inbox_sources() -> tuple[list[tuple[Path, str, str, Path]], list[dict]]:
+    """반영할 파일 목록 [(파일, 날짜, AI 이름, 그 파일이 있는 폴더)]과, 건드리지 못한 .md 파일 [{name, dir, why}].
+
+    찾는 곳: ① 피드백 폴더(설정) ② 예전 기본 위치 앱 폴더의 inbox/ ③ feedback/<AI>/ 폴더 안에 날짜_이름.md 로 넣은 파일(폴더 이름이 AI).
+    """
+    found, skipped, seen = [], [], set()
+    dirs = [inbox_dir()]
+    legacy = ROOT / "inbox"
+    if legacy.is_dir() and legacy.resolve() != inbox_dir().resolve():
+        dirs.append(legacy)
+    for d in dirs:
+        if not d.is_dir() or d.resolve() in seen:
+            continue
+        seen.add(d.resolve())
+        for f in sorted(d.glob("*.md")):
+            if not f.is_file():
+                continue
+            mm = inbox_match(f.name)
+            if not mm:
+                skipped.append({"name": f.name, "dir": str(d), "why": "이름이 날짜로 시작하지 않음 (예: 2026-11-14_gpt.md)"})
+            elif not mm[1]:
+                skipped.append({"name": f.name, "dir": str(d), "why": "AI 이름이 없음 (예: 2026-11-14_gpt.md)"})
+            else:
+                found.append((f, mm[0], mm[1], d))
+    fb = CFG["feedback"]
+    if fb.is_dir():
+        for ad in sorted(p for p in fb.iterdir() if p.is_dir() and not p.name.startswith("_")):
+            for f in sorted(ad.glob("*.md")):
+                if valid_day(f.stem):      # 이미 정리된 파일(날짜.md)
+                    continue
+                mm = inbox_match(f.name)
+                if mm:
+                    found.append((f, mm[0], ad.name, ad))
+                else:
+                    skipped.append({"name": f.name, "dir": str(ad), "why": "날짜.md 형식이 아님 (예: 2026-11-14.md)"})
+    return found, skipped
+
+
 def inbox_files() -> list[Path]:
-    d = inbox_dir()
-    if not d.is_dir():
-        return []
-    return sorted(p for p in d.glob("*.md") if p.is_file() and INBOX_NAME_RE.match(p.name))
+    return [f for f, *_ in inbox_sources()[0]]
 
 
 def uses_crlf(data: bytes) -> bool:
@@ -733,20 +774,17 @@ def api_bundle(body: dict) -> dict:
 
 
 def api_inbox_status() -> dict:
-    return {"path": str(inbox_dir()), "exists": inbox_dir().is_dir(), "count": len(inbox_files())}
+    found, skipped = inbox_sources()
+    return {"path": str(inbox_dir()), "exists": inbox_dir().is_dir(), "count": len(found), "skipped": len(skipped)}
 
 
 def api_inbox_apply(body: dict) -> dict:
-    """inbox 폴더의 `날짜_AI이름.md` 파일을 feedback/에 반영하고, 처리한 파일은 `_반영됨/`으로 옮긴다."""
-    d = inbox_dir()
-    if not d.is_dir():
-        raise ApiError(404, f"피드백 폴더가 없습니다: {d}", code="no_inbox")
+    """피드백 파일(`날짜_AI이름.md`)을 feedback/<AI>/날짜.md 에 반영하고, 처리한 파일은 그 폴더의 `_반영됨/`으로 옮긴다."""
+    found, skipped = inbox_sources()
     results, dates = [], set()
-    for f in inbox_files():
-        m = INBOX_NAME_RE.match(f.name)
-        day, ai = m.group(1), m.group(2).strip()
+    for f, day, ai, d in found:
         label = canon_ai(ai)
-        r = {"name": f.name, "date": day, "ai": label}
+        r = {"name": f.name, "date": day, "ai": label, "dir": str(d)}
         try:
             if not valid_day(day):
                 raise ApiError(400, "날짜가 올바르지 않습니다")
@@ -771,8 +809,8 @@ def api_inbox_apply(body: dict) -> dict:
         except (OSError, UnicodeDecodeError) as err:
             r["state"], r["error"] = "skip", f"읽지 못했습니다 ({type(err).__name__})"
         results.append(r)
-    ignored = sum(1 for p in d.glob("*.md") if p.is_file() and not INBOX_NAME_RE.match(p.name))
-    return {"ok": True, "results": results, "dates": sorted(dates), "ignored": ignored, "path": str(d)}
+    return {"ok": True, "results": results, "dates": sorted(dates), "skipped": skipped,
+            "ignored": len(skipped), "path": str(inbox_dir())}
 
 
 def api_save_note(body: dict) -> dict:

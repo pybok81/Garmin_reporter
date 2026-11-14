@@ -147,6 +147,12 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .res{display:flex;flex-direction:column;gap:6px;font-size:13px}
 .res .r{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line2);border-radius:4px}
 .modal.wide{max-width:760px}
+.fbtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:0 0 10px;flex-wrap:wrap}
+.fbtab{background:none;border:0;border-bottom:2px solid transparent;padding:8px 12px;font:inherit;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;min-height:40px}
+.fbtab:hover{color:var(--ink)}
+.fbtab.on{color:var(--ink);border-bottom-color:var(--accent,#1a6fc9)}
+.fbtab.off{font-weight:400}
+.fbtab:focus-visible{outline:2px solid var(--accent,#1a6fc9);outline-offset:-2px}
 .sets-t{width:100%;border-collapse:collapse;font-size:13px}
 .sets-t th,.sets-t td{padding:5px 6px;border-bottom:1px solid var(--line2);text-align:left;vertical-align:middle}
 .sets-t th{font-size:12px;color:var(--muted);font-weight:600}
@@ -348,8 +354,10 @@ async function refreshInbox(){
 }
 function inboxResultModal(r){
   const lab={ok:"반영됨",dup:"이미 있음",skip:"건너뜀"},col={ok:"var(--ok)",dup:"var(--muted)",skip:"var(--danger)"};
-  const rows=r.results.length?r.results.map(x=>`<div class="r"><strong style="color:${col[x.state]}">${lab[x.state]}</strong><span>${esc(x.name)}</span>${x.error?`<span class="muted">${esc(x.error)}</span>`:`<span class="muted">→ ${esc(x.date)} [${esc(x.ai)}]</span>`}</div>`).join(""):`<div class="note">반영할 파일이 없습니다. 파일 이름이 <code>2026-11-08_gpt.md</code> 형식인지 확인하세요.</div>`;
-  openModal(`<h2>피드백 반영 결과</h2><div class="res">${rows}</div><div class="muted" style="font-size:12px">폴더: ${esc(r.path)}${r.ignored?` · 이름 형식이 달라 건드리지 않은 .md ${r.ignored}개`:""}<br>반영한 파일은 폴더 안 <code>_반영됨</code>으로 옮겼습니다.</div><div class="row" style="justify-content:flex-end"><button class="btn primary" data-act="close">닫기</button></div>`);
+  const rows=r.results.map(x=>`<div class="r"><strong style="color:${col[x.state]}">${lab[x.state]}</strong><span>${esc(x.name)}</span>${x.error?`<span class="muted">${esc(x.error)}</span>`:`<span class="muted">→ ${esc(x.date)} [${esc(x.ai)}]</span>`}</div>`).join("");
+  const sk=(r.skipped||[]).map(x=>`<div class="r"><strong style="color:var(--danger)">이름 확인</strong><span>${esc(x.name)}</span><span class="muted">${esc(x.why)}</span></div>`).join("");
+  const none=!rows&&!sk?`<div class="note">반영할 파일이 없습니다.<br>찾은 폴더: <code>${esc(r.path)}</code><br>파일 이름은 <code>2026-11-14_gpt.md</code> 처럼 날짜로 시작해야 합니다. 이 폴더 말고 <code>feedback\\ChatGPT\\</code> 같은 AI 폴더 안에 넣어도 찾습니다.</div>`:"";
+  openModal(`<h2>피드백 반영 결과</h2><div class="res">${rows}${sk}${none}</div><div class="muted" style="font-size:12px">피드백 폴더: ${esc(r.path)}<br>반영한 파일은 원래 폴더 안 <code>_반영됨</code>으로 옮겼습니다.</div><div class="row" style="justify-content:flex-end"><button class="btn primary" data-act="close">닫기</button></div>`);
 }
 /* ---------- 문서(훈련 계획 / 사전) ---------- */
 async function showDocs(){
@@ -412,19 +420,29 @@ function renderSide(){
 }
 function setWeek(wk,open){open?S.openWeeks.add(wk):S.openWeeks.delete(wk);store("weeks",JSON.stringify([...S.openWeeks]))}
 function curInfo(){return S.days.find(d=>d.date===S.sel)}
+const FB_STD=["ChatGPT","gemini","claude"];
+function fbNames(items){
+  const names=[];
+  for(const n of FB_STD.concat(items.map(i=>i.ai)))if(!names.some(x=>x.toLowerCase()===n.toLowerCase()))names.push(n);
+  return names;
+}
 function feedbackBlock(){
   const items=S.fb||[];
+  const names=fbNames(items);
+  const have=n=>items.find(i=>i.ai.toLowerCase()===n.toLowerCase());
   if(S.fbEdit==="add"){
-    const names=[];for(const n of ["ChatGPT","gemini","claude"].concat(items.map(i=>i.ai)))if(!names.some(x=>x.toLowerCase()===n.toLowerCase()))names.push(n);
-    return `<section class="fb"><div class="fbh"><h2>AI 피드백 추가</h2></div><div class="row" style="align-items:center;margin-bottom:8px"><label for="fbai" class="muted" style="font-size:13px">어느 AI의 답변인가요?</label><select id="fbai">${names.map(n=>`<option>${esc(n)}</option>`).join("")}</select></div><textarea class="fbe" id="fbt" placeholder="AI 답변을 붙여넣으세요"></textarea><div class="nbf" style="margin-top:8px"><button class="btn primary small" data-act="fb-add">추가</button><button class="btn small" data-act="fb-cancel">취소</button></div></section>`;
+    return `<section class="fb"><div class="fbh"><h2>AI 피드백 추가</h2></div><div class="row" style="align-items:center;margin-bottom:8px"><label for="fbai" class="muted" style="font-size:13px">어느 AI의 답변인가요?</label><select id="fbai">${names.map(n=>`<option${S.fbTab&&S.fbTab.toLowerCase()===n.toLowerCase()?" selected":""}>${esc(n)}</option>`).join("")}</select></div><textarea class="fbe" id="fbt" placeholder="AI 답변을 붙여넣으세요"></textarea><div class="nbf" style="margin-top:8px"><button class="btn primary small" data-act="fb-add">추가</button><button class="btn small" data-act="fb-cancel">취소</button></div></section>`;
   }
-  const editAi=typeof S.fbEdit==="string"&&S.fbEdit.startsWith("edit:")?S.fbEdit.slice(5):null;
+  let cur=names.find(n=>S.fbTab&&n.toLowerCase()===S.fbTab.toLowerCase())||(items[0]&&items[0].ai)||names[0];
+  const it=have(cur);
+  const editing=typeof S.fbEdit==="string"&&S.fbEdit.startsWith("edit:")&&it&&S.fbEdit.slice(5)===it.ai;
   const head=`<div class="fbh"><h2>AI 피드백</h2><button class="btn small" data-act="fb-addform">${items.length?"추가":"피드백 붙여넣기"}</button></div>`;
-  if(!items.length)return `<section class="fb">${head}<div class="muted" style="font-size:13px">아직 없습니다. 받은 답을 <code>날짜_gpt.md</code> 이름으로 피드백 폴더에 넣고 상단 '피드백 반영'을 누르거나, 붙여넣으세요.</div></section>`;
-  const body=items.map(it=>it.ai===editAi
-    ?`<div class="fbai"><div class="fbh"><h3>${esc(it.ai)} 편집</h3></div><textarea class="fbe" id="fbt">${esc(it.text)}</textarea><div class="nbf" style="margin-top:8px"><button class="btn primary small" data-act="fb-save">저장</button><button class="btn small" data-act="fb-cancel">취소</button><span class="muted" style="font-size:12px">내용을 모두 지우고 저장하면 이 AI의 이 날 피드백이 삭제됩니다</span></div></div>`
-    :`<div class="fbai"><div class="fbh"><h3>${esc(it.ai)}</h3><button class="btn small" data-act="fb-edit" data-fbai="${esc(it.ai)}">편집</button></div><div class="fbb">${renderMd(it.text)}</div></div>`).join("");
-  return `<section class="fb">${head}${body}</section>`;
+  const tabs=`<div class="fbtabs" role="tablist" aria-label="AI 선택">${names.map(n=>{const h=have(n);return `<button role="tab" class="fbtab${n===cur?" on":""}${h?"":" off"}" aria-selected="${n===cur}" data-act="fb-tab" data-fbai="${esc(n)}">${esc(n)}${h?"":` <span class="muted">없음</span>`}</button>`}).join("")}</div>`;
+  let body;
+  if(!it)body=`<div class="muted" style="font-size:13px;line-height:1.7">${esc(cur)} 피드백이 아직 없습니다. 받은 답을 <code>날짜_${cur==="ChatGPT"?"gpt":esc(cur)}.md</code> 이름으로 피드백 폴더에 넣고 상단 '피드백 반영'을 누르거나, 붙여넣으세요.</div>`;
+  else if(editing)body=`<div class="fbai"><textarea class="fbe" id="fbt">${esc(it.text)}</textarea><div class="nbf" style="margin-top:8px"><button class="btn primary small" data-act="fb-save">저장</button><button class="btn small" data-act="fb-cancel">취소</button><span class="muted" style="font-size:12px">내용을 모두 지우고 저장하면 이 AI의 이 날 피드백이 삭제됩니다</span></div></div>`;
+  else body=`<div class="fbai"><div class="fbh" style="justify-content:flex-end"><button class="btn small" data-act="fb-edit" data-fbai="${esc(it.ai)}">편집</button></div><div class="fbb">${renderMd(it.text)}</div></div>`;
+  return `<section class="fb">${head}${tabs}${body}</section>`;
 }
 const mmss=v=>{v=Math.round(v);return Math.floor(v/60)+":"+String(v%60).padStart(2,"0")};
 function lineSvg(a,key,label,color,inv,fmt){
@@ -808,6 +826,7 @@ document.addEventListener("click",async ev=>{
       try{await api("/api/report/rebuild",{date:S.sel});await loadDays();await loadReport();render();toast("가민 원본으로 리포트를 다시 만들었습니다 (메모는 유지)")}
       catch(e){toast(e.error);t.disabled=false}
       return;
+    case"fb-tab":S.fbTab=t.dataset.fbai;S.fbEdit=false;renderMain();return;
     case"edit-sets":return openSets(t.closest(".nb").dataset.id);
     case"save-sets":return saveSets(t);
     case"sets-reset":{
@@ -832,7 +851,7 @@ document.addEventListener("click",async ev=>{
     case"fb-add":{
       const v=$("#fbt").value;if(!v.trim()){toast("붙여넣은 내용이 없습니다");return}
       t.disabled=true;
-      try{const r=await api("/api/feedback",{date:S.sel,ai:$("#fbai").value||"기타",text:v,mode:"append"});S.fb=r.items;S.fbEdit=false;await loadDays();render();toast(r.duplicate?"이미 있는 피드백입니다":"피드백을 추가했습니다")}
+      try{const r=await api("/api/feedback",{date:S.sel,ai:$("#fbai").value||"기타",text:v,mode:"append"});S.fb=r.items;S.fbTab=$("#fbai").value||S.fbTab;S.fbEdit=false;await loadDays();render();toast(r.duplicate?"이미 있는 피드백입니다":"피드백을 추가했습니다")}
       catch(e){toast(e.error);t.disabled=false}
       return;
     }

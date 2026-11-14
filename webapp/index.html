@@ -166,6 +166,29 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:90vw;padding:10px 16px;border-radius:6px;background:#14191C;color:#fff;font-size:14px;z-index:30;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.show{opacity:1}
 @media (max-width:900px){.claude{flex:1 1 100%!important;position:static;max-height:none}.split{display:none!important}.top,.tabs{padding-left:16px;padding-right:16px}.cols{padding:16px}.mbody,.mhead{padding-left:16px;padding-right:16px}.side{max-width:none}}
+.hist{padding:16px 20px 28px}
+.hbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.hbar input[type=date]{min-height:36px;padding:0 8px;border:1px solid var(--line);border-radius:4px;background:var(--sheet)}
+.hbar .on{background:var(--accent-bg);color:var(--accent-fg);border-color:var(--accent)}
+.hstats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:6px 0 14px}
+.hst{border:1px solid var(--line2);border-radius:6px;padding:10px 12px;background:var(--field)}
+.hst .k{font-size:12px;color:var(--muted)}
+.hst .v{font-family:var(--num);font-size:26px;line-height:1.2}
+.hst .d{font-size:12px;color:var(--muted)}
+.hh{font-size:13px;font-weight:600;color:var(--muted);margin:18px 0 6px}
+.hz{display:flex;height:12px;border-radius:3px;overflow:hidden;margin:4px 0}
+.hrow{display:flex;gap:10px;align-items:baseline;width:100%;text-align:left;padding:8px 6px;border:0;border-bottom:1px solid var(--line2);background:none;cursor:pointer;flex-wrap:wrap}
+.hrow:hover,.hrow:focus-visible{background:var(--field)}
+.hrow .dt{flex:0 0 74px;font-family:var(--num);font-size:16px}
+.hrow .ac{flex:1 1 240px}
+.hrow .wl{flex:0 0 auto;font-size:12px;color:var(--muted)}
+.hrow.rest .ac{color:var(--muted)}
+.hist table{border-collapse:collapse;width:100%;font-size:14px}
+.hist th,.hist td{border:0;border-bottom:1px solid var(--line2);padding:6px 12px 6px 0;text-align:left;white-space:nowrap}
+.hist th{font-weight:600;font-size:13px;color:var(--muted);border-bottom-color:var(--line)}
+.hist .hz{max-width:460px;background:var(--chip)}
+a.btn{display:inline-flex;align-items:center;text-decoration:none;color:var(--fg)}
+a.btn:hover{background:var(--field)}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -184,6 +207,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   <aside class="card side" id="side" aria-label="파일 목록"></aside>
   <main class="card main" id="main"></main>
   <section class="card main docs" id="docs" aria-label="문서" hidden></section>
+  <section class="card main hist" id="hist" aria-label="기간별 기록" hidden></section>
   <div class="split" id="split" role="separator" aria-orientation="vertical" aria-label="AI 창 너비 조절 (좌우 방향키)" tabindex="0"></div>
   <aside class="card claude" id="claude" aria-label="AI에게 보내기"></aside>
 </div>
@@ -193,12 +217,12 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 
 <script>
 "use strict";
-const TABS=[["report","리포트"],["claude","AI"],["split","리포트 + AI"],["docs","문서"]];
+const TABS=[["report","리포트"],["claude","AI"],["split","리포트 + AI"],["docs","문서"],["hist","기록"]];
 const QUESTIONS=["이 날 회복 상태와 운동 강도를 평가해 줘","내일 운동 계획을 제안해 줘","메모에 적을 내용을 정리해 줘"];
 const DEFAULT_AIS=[["Claude","https://claude.ai/new"],["ChatGPT","https://chatgpt.com/"],["Gemini","https://gemini.google.com/app"]];
 const WD="월화수목금토일";
 const S={fb:[],fbEdit:false,days:[],today:"",sel:null,md:"",tab:"split",dirty:new Set(),question:QUESTIONS[0],g:null,up:[],uploadFiles:new Map(),settings:null,
-  claudeW:Math.max(320,+store("claudeW")||460),openWeeks:new Set([].concat(loadJson("weeks",[]))),revealed:null,ais:loadAis(),popup:store("popup")!=="0",ref:store("ref")==="1",hasRef:false,docs:{kinds:[],sel:null,text:"",edit:false,isNew:false,upKind:"plan"},asFile:store("asfile")!=="0",plan:store("plan")==="1",hasPlan:false,graph:store("graph")||"none",ser:[]};
+  claudeW:Math.max(320,+store("claudeW")||460),openWeeks:new Set([].concat(loadJson("weeks",[]))),revealed:null,ais:loadAis(),popup:store("popup")!=="0",ref:store("ref")==="1",hasRef:false,docs:{kinds:[],sel:null,text:"",edit:false,isNew:false,upKind:"plan"},asFile:store("asfile")!=="0",plan:store("plan")==="1",hasPlan:false,graph:store("graph")||"none",ser:[],h:{mode:"week",from:"",to:"",data:null,err:""}};
 
 /* ---------- utils ---------- */
 const $=s=>document.querySelector(s);
@@ -326,9 +350,10 @@ async function selectDay(day){
 function render(){renderTabs();renderSide();renderMain();renderClaude();layout()}
 function layout(){
   const t=S.tab;
-  $("#main").hidden=t==="claude"||t==="docs";
-  $("#side").hidden=t==="docs";
+  $("#main").hidden=t==="claude"||t==="docs"||t==="hist";
+  $("#side").hidden=t==="docs"||t==="hist";
   $("#docs").hidden=t!=="docs";
+  $("#hist").hidden=t!=="hist";
   $("#claude").hidden=!(t==="claude"||t==="split");
   $("#claude").classList.toggle("wide",t==="claude");
   $("#claude").style.setProperty("--cw",S.claudeW+"px");
@@ -392,6 +417,57 @@ async function docUpload(kind,files){
   if(last&&ok===1)await openDoc(kind,last);
   await loadDays().catch(()=>{});renderClaude();
   toast(`${ok}개 올렸습니다${bad.length?` · 실패 ${bad.length}: ${bad.join(" / ")}`:""}`);
+}
+
+/* ---------- 기록(기간별 요약) ---------- */
+function histRange(kind,off=0){
+  const t=S.today||fmtLocal(new Date());
+  if(kind==="month"){const d=parseDay(t);d.setDate(1);d.setMonth(d.getMonth()+off);const e=new Date(d.getFullYear(),d.getMonth()+1,0);return [fmtLocal(d),fmtLocal(e)]}
+  if(kind==="week"){const a=addDays(weekStart(t),7*off);return [a,addDays(a,6)]}
+  return [addDays(t,-kind+1),t];   // 숫자: 최근 N일
+}
+function histShift(dir){
+  const H=S.h;
+  if(H.mode==="month"){const d=parseDay(H.from);d.setMonth(d.getMonth()+dir);const e=new Date(d.getFullYear(),d.getMonth()+1,0);H.from=fmtLocal(d);H.to=fmtLocal(e)}
+  else{const n=Math.round((parseDay(H.to)-parseDay(H.from))/864e5)+1;H.from=addDays(H.from,dir*n);H.to=addDays(H.to,dir*n)}
+  loadHist();
+}
+async function showHist(){if(!S.h.from){[S.h.from,S.h.to]=histRange("week")}if(!S.h.data&&!S.h.err)await loadHist();else renderHist()}
+async function loadHist(){
+  const H=S.h;H.err="";
+  try{H.data=await api(`/api/history?mode=${H.mode}&from=${H.from}&to=${H.to}`)}catch(e){H.data=null;H.err=e.error||"불러오지 못했습니다"}
+  renderHist();
+}
+const hv=(v,u="")=>v===null||v===undefined?"-":v+u;
+function hd(c,p,u="",dg=1){if(c===null||c===undefined||p===null||p===undefined)return "";const d=+(c-p).toFixed(dg);return d?`이전 ${d>0?"+":""}${d}${u}`:"이전과 같음"}
+function renderHist(){
+  const el=$("#hist");if(!el)return;const H=S.h,D=H.data;
+  const pre=[["이번 주","week",0],["지난주","week",-1],["이번 달","month",0],["지난달","month",-1],["최근 4주","28"],["최근 90일","90"]];
+  const cur=(a,b)=>H.from===a&&H.to===b;
+  const bar=`<div class="hbar">${pre.map(([l,k,o])=>{const [a,b]=histRange(k,o);return `<button class="btn small${cur(a,b)?" on":""}" data-act="h-pre" data-k="${k}" data-o="${o||0}">${l}</button>`}).join("")}
+    <button class="btn small" data-act="h-prev" aria-label="이전 기간">◀</button><button class="btn small" data-act="h-next" aria-label="다음 기간">▶</button>
+    <input type="date" id="h-from" value="${H.from}" aria-label="시작일"> ~ <input type="date" id="h-to" value="${H.to}" aria-label="끝일"><button class="btn small" data-act="h-go">보기</button></div>`;
+  if(H.err||!D||!D.exists){
+    el.innerHTML=`<div class="hist">${bar}<div class="note">${esc(H.err||"이력 DB가 아직 없습니다. 계정 설정의 '원본을 DB에 반영'을 한 번 실행하면 만들어집니다.")}</div></div>`;return}
+  const c=D.cur,p=D.prev,z=c.zonesMin,zt=z.reduce((a,x)=>a+x,0);
+  const st=(k,v,d)=>`<div class="hst"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d||"&nbsp;"}</div></div>`;
+  const stats=`<div class="hstats">${st("운동",c.sessions+"회",`${c.activeDays}일 · ${hd(c.sessions,p.sessions,"회",0)}`)}
+    ${st("총 시간",c.hours+"h",hd(c.hours,p.hours,"h",2))}${st("러닝",c.runKm+"km",hd(c.runKm,p.runKm,"km"))}
+    ${st("웨이트",c.sets+"세트",hd(c.sets,p.sets,"세트",0))}${st("훈련 부하",c.load,hd(c.load,p.load,"",0))}
+    ${st("수면",hv(c.sleepH,"h"),hd(c.sleepH,p.sleepH,"h"))}${st("HRV",hv(c.hrv),hd(c.hrv,p.hrv))}${st("안정시 심박",hv(c.restHr),hd(c.restHr,p.restHr))}
+    ${c.acwr?st("부하 비율 (ACWR)",c.acwr.ratio,`${esc(c.acwr.status)} · ${c.acwr.day.slice(5)} 기준`):""}</div>`;
+  const zb=zt?`<div class="hh">심박존 시간 (분)</div><div class="hz" role="img" aria-label="심박존 시간">${z.slice(1).map((m,i)=>`<i style="width:${m/zt*100}%;background:var(--z${i+1})"></i>`).join("")}</div><div class="zl">${z.slice(1).map((m,i)=>`<span style="--c:var(--z${i+1})">Z${i+1} ${m}분</span>`).join("")}<span class="muted">Z1 미만 ${z[0]}분 (막대에서 제외)</span></div>`:"";
+  const th=a=>`<tr>${a.map(x=>`<th>${x}</th>`).join("")}</tr>`,td=a=>`<tr>${a.map(x=>`<td>${x}</td>`).join("")}</tr>`;
+  const types=c.types.length?`<div class="hh">종류별</div><div class="tw"><table><thead>${th(["종류","횟수","시간","거리","평균 심박","세트","부하"])}</thead><tbody>${c.types.map(t=>td([t.name,t.count,t.hours+"h",hv(t.km,"km"),hv(t.avgHr),hv(t.sets),t.load])).join("")}</tbody></table></div>`:"";
+  const weeks=D.weeks.length?`<div class="hh">주별</div><div class="tw"><table><thead>${th(["주","운동","시간","러닝","세트","부하","수면","HRV"])}</thead><tbody>${D.weeks.map(w=>td([w.start.slice(5)+" ~ "+w.end.slice(5),w.sessions,w.hours+"h",w.runKm+"km",w.sets,w.load,hv(w.sleepH,"h"),hv(w.hrv)])).join("")}</tbody></table></div>`:"";
+  const rpt=new Set(S.days.map(d=>d.date));
+  const days=`<div class="hh">날짜별 <span class="muted" style="font-weight:400">· 누르면 그날 리포트를 엽니다</span></div>`+(D.days.length?D.days.map(d=>{
+    const ac=d.acts.map(a=>`${esc(a.type)} ${a.min}분${a.km?` ${a.km}km`:""}${a.hr?` · 심박 ${a.hr}`:""}${a.sets&&a.type==="웨이트"?` · ${a.sets}세트`:""}`).join(" / ")||"휴식";
+    const wl=[d.sleepH?`수면 ${d.sleepH}h`:"",d.hrv?`HRV ${d.hrv}`:""].filter(Boolean).join(" · ");
+    return `<button class="hrow${d.acts.length?"":" rest"}" data-act="h-day" data-d="${d.date}"${rpt.has(d.date)?"":" disabled title=\"이 날 리포트가 없습니다\""}><span class="dt">${d.date.slice(5)} ${d.weekday}</span><span class="ac">${ac}</span><span class="wl">${wl}</span></button>`}).join(""):`<div class="muted">이 기간에 기록이 없습니다.</div>`);
+  const q=`from=${H.from}&to=${H.to}`;
+  const out=`<div class="row" style="margin-top:16px;align-items:center"><button class="btn small" data-act="h-copy">요약을 AI용 텍스트로 복사</button><a class="btn small" href="/api/history.csv?kind=days&${q}" download="기록_${H.from}_${H.to}.csv">날짜별 CSV</a><a class="btn small" href="/api/history.csv?kind=activities&${q}" download="활동_${H.from}_${H.to}.csv">활동 전체 CSV</a><span class="muted" style="font-size:12px">DB 범위 ${esc(D.dbFrom||"")} ~ ${esc(D.dbTo||"")}</span></div>`;
+  el.innerHTML=`<div class="hist">${bar}<h2 style="font-size:20px;font-family:inherit;margin:4px 0">${c.start} ~ ${c.end}</h2><div class="muted" style="font-size:12px">비교: ${p.start} ~ ${p.end} · 심박은 손목 센서 기준</div>${stats}${zb}${types}${weeks}${days}${out}</div>`;
 }
 function renderTabs(){
   $("#tabs").innerHTML=TABS.map(([k,v])=>`<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${v}</button>`).join("");
@@ -739,7 +815,7 @@ document.addEventListener("click",async ev=>{
   const t=ev.target.closest("[data-act],[data-tab],[data-day],[data-q],[data-preset],[data-overwrite],[data-overlay],[data-week],[data-ai]");
   if(!t)return;
   if(t.dataset.overlay!==undefined){if(ev.target===t&&!(S.g&&S.g.running))closeModal();return}
-  if(t.dataset.tab){S.tab=t.dataset.tab;store("tab",S.tab);renderTabs();layout();if(S.tab==="docs")showDocs();return}   // 메인을 다시 그리지 않아 입력 중인 메모가 유지된다
+  if(t.dataset.tab){if(S.tab!=="hist")store("tab0",S.tab);S.tab=t.dataset.tab;store("tab",S.tab);renderTabs();layout();if(S.tab==="docs")showDocs();if(S.tab==="hist")showHist();return}   // 메인을 다시 그리지 않아 입력 중인 메모가 유지된다
   if(t.dataset.week){const wk=t.dataset.week;setWeek(wk,!S.openWeeks.has(wk));renderSide();return}
   if(t.dataset.ai!==undefined)return openAi(+t.dataset.ai);
   if(t.dataset.day)return selectDay(t.dataset.day);
@@ -747,6 +823,12 @@ document.addEventListener("click",async ev=>{
   if(t.dataset.preset){const [a,b]=t.dataset.preset.split("|");S.g.start=a;S.g.end=b;refreshGarmin();return}
   if(t.dataset.overwrite)return overwrite(+t.dataset.overwrite);
   switch(t.dataset.act){
+    case"h-pre":{const k=t.dataset.k;S.h.mode=k==="week"||k==="month"?k:"range";[S.h.from,S.h.to]=histRange(k==="week"||k==="month"?k:+k,+t.dataset.o);return loadHist()}
+    case"h-prev":return histShift(-1);
+    case"h-next":return histShift(1);
+    case"h-go":{const a=$("#h-from").value,b=$("#h-to").value;if(!a||!b)return toast("날짜를 고르세요");S.h.mode="range";S.h.from=a;S.h.to=b;return loadHist()}
+    case"h-day":{if(S.dirty.size&&!confirm("저장하지 않은 메모가 있습니다. 이동할까요?"))return;S.dirty.clear();S.sel=t.dataset.d;S.tab=store("tab0")&&store("tab0")!=="hist"?store("tab0"):"split";store("tab",S.tab);await loadReport();render();return}
+    case"h-copy":try{await copyText(S.h.data.text);toast("복사했습니다. AI 창에 붙여 넣으세요")}catch(e){toast("복사하지 못했습니다")}return;
     case"open-garmin":return openGarmin();
     case"open-rpe":{
       try{
@@ -932,7 +1014,7 @@ window.addEventListener("drop",ev=>{
   initSplit();
   const saved=store("tab");if(TABS.some(t=>t[0]===saved))S.tab=saved;
   try{await loadDays(false);await loadReport()}catch(e){toast(e.error)}
-  render();refreshInbox();
+  render();refreshInbox();if(S.tab==="hist")showHist();
   window.addEventListener("focus",refreshInbox);
 })();
 </script>

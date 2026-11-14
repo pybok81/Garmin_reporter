@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, urlparse
 
 import corrections as corr
 import history_db
+import history_view
 from garmin_report import NOTE_RE, load_names, weight_kg
 
 ROOT = Path(__file__).resolve().parent
@@ -1046,6 +1047,43 @@ def db_sync(days: list[str] | None = None, create: bool = False) -> dict | None:
         return {"error": f"{type(err).__name__}: {err}"}
 
 
+def _period_args(q: dict) -> tuple[str, str, str]:
+    """mode(week|month|range)와 from/to. 비면 이번 주/이번 달 기준으로 채운다."""
+    mode = (q.get("mode") or ["week"])[0]
+    today = date.today()
+    a, b = (q.get("from") or [""])[0], (q.get("to") or [""])[0]
+    try:
+        if a and b:
+            date.fromisoformat(a), date.fromisoformat(b)
+        elif mode == "month":
+            a = today.replace(day=1).isoformat()
+            b = ((today.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)).isoformat()
+        else:
+            s = history_view.week_start(today)
+            a, b = s.isoformat(), (s + timedelta(days=6)).isoformat()
+    except ValueError:
+        raise ApiError(400, "날짜 형식은 YYYY-MM-DD 입니다") from None
+    if a > b:
+        raise ApiError(400, "시작일이 끝일보다 늦습니다")
+    if (date.fromisoformat(b) - date.fromisoformat(a)).days > 800:
+        raise ApiError(400, "기간이 너무 깁니다 (최대 800일)")
+    return mode if mode in ("week", "month") else "range", a, b
+
+
+def api_history(q: dict) -> dict:
+    mode, a, b = _period_args(q)
+    return history_view.build(db_path(), mode, a, b)
+
+
+def api_history_csv(q: dict) -> bytes:
+    _, a, b = _period_args(q)
+    kind = (q.get("kind") or ["days"])[0]
+    text = history_view.to_csv(db_path(), "activities" if kind == "activities" else "days", a, b)
+    if not text:
+        raise ApiError(404, "이력 DB가 없습니다. 계정 설정에서 '원본을 DB에 반영'을 먼저 실행하세요")
+    return ("\ufeff" + text).encode("utf-8")   # 엑셀에서 한글이 깨지지 않게 BOM
+
+
 def api_db_status() -> dict:
     st = history_db.status(db_path())
     st["path"] = str(db_path())
@@ -1165,6 +1203,10 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(200, api_sets_get((q.get("date") or [""])[0], (q.get("id") or [""])[0]))
                 elif url.path == "/api/db":
                     self._json(200, api_db_status())
+                elif url.path == "/api/history":
+                    self._json(200, api_history(q))
+                elif url.path == "/api/history.csv":
+                    self._send(200, api_history_csv(q), "text/csv; charset=utf-8")
                 elif url.path == "/api/series":
                     self._json(200, api_series((q.get("date") or [""])[0]))
                 elif url.path == "/api/docs":

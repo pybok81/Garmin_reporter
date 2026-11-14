@@ -166,7 +166,7 @@ def inbox_match(name: str) -> tuple[str, str | None] | None:
 def inbox_sources() -> tuple[list[tuple[Path, str, str, Path]], list[dict]]:
     """반영할 파일 목록 [(파일, 날짜, AI 이름, 그 파일이 있는 폴더)]과, 건드리지 못한 .md 파일 [{name, dir, why}].
 
-    찾는 곳: ① 피드백 폴더(설정) ② 예전 기본 위치 앱 폴더의 inbox/ ③ feedback/<AI>/ 폴더 안에 날짜_이름.md 로 넣은 파일(폴더 이름이 AI).
+    찾는 곳: ① 피드백 폴더(설정) ② 예전 기본 위치 앱 폴더의 inbox/ ③ feedback/ 바로 아래, 또는 feedback/<AI>/ 폴더 안에 날짜_이름.md 로 넣은 파일(폴더 이름이 AI).
     """
     found, skipped, seen = [], [], set()
     dirs = [inbox_dir()]
@@ -189,6 +189,14 @@ def inbox_sources() -> tuple[list[tuple[Path, str, str, Path]], list[dict]]:
                 found.append((f, mm[0], mm[1], d))
     fb = CFG["feedback"]
     if fb.is_dir():
+        for f in sorted(fb.glob("*.md")):       # feedback/ 바로 아래에 날짜_gpt.md 로 넣은 파일
+            if not f.is_file() or valid_day(f.stem):   # 날짜.md 는 예전 형식(시작할 때 자동 정리)
+                continue
+            mm = inbox_match(f.name)
+            if mm and mm[1]:
+                found.append((f, mm[0], mm[1], fb))
+            else:
+                skipped.append({"name": f.name, "dir": str(fb), "why": "이름이 날짜_AI이름.md 형식이 아님 (예: 2026-11-14_gpt.md)"})
         for ad in sorted(p for p in fb.iterdir() if p.is_dir() and not p.name.startswith("_")):
             for f in sorted(ad.glob("*.md")):
                 if valid_day(f.stem):      # 이미 정리된 파일(날짜.md)

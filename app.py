@@ -4,7 +4,7 @@
     python app.py --port 9000 --no-browser
 
 - 리포트(.md)가 원본이다. 메모는 .md의 `<!-- notes:ID -->` 마커 안쪽만 고친다.
-- 가져오기는 garmin_export.py 로 수집한 뒤 garmin_report.py 를 (동기화 폴더 경로를 넘겨) 호출한다.
+- 가져오기는 garmin_export.py 로 수집한 뒤 garmin_report.py 를 (보관 폴더 경로를 넘겨) 호출한다.
 - 127.0.0.1에만 열고, Host/Content-Type을 검사해서 다른 웹페이지가 이 서버를 건드리지 못하게 한다.
 """
 
@@ -45,7 +45,7 @@ FILE_LOCK = threading.RLock()  # 리포트 파일 쓰기
 SYNC_LOCK = threading.Lock()   # 가민 수집은 한 번에 하나만
 
 CFG = {
-    "root": ROOT,   # 동기화(구글 드라이브) 대상 폴더: reports/ feedback/ plan/ reference/ inbox/ archive/ 가 이 아래에 놓인다
+    "root": ROOT,   # 보관 폴더(구글 드라이브 안에 두면 PC 간 공유): reports/ feedback/ plan/ reference/ inbox/ archive/ 가 이 아래에 놓인다
     "reports": ROOT / "reports",
     "data": ROOT / "data",
     "feedback": ROOT / "feedback",
@@ -324,8 +324,8 @@ def contiguous_runs(days: list[str]) -> list[tuple[str, int]]:
 
 
 # ---------------------------------------------------------------- API logic
-# ------------------------------------------------- 동기화 폴더(구글 드라이브) / 스냅샷
-SYNC_SUBDIRS = ("reports", "feedback", "plan", "reference", "corrections")   # 동기화 폴더로 옮겨 가는 폴더 (원본 가민 JSON과 DB는 로컬에 둔다)
+# ------------------------------------------------- 보관 폴더(구글 드라이브) / 스냅샷
+SYNC_SUBDIRS = ("reports", "feedback", "plan", "reference", "corrections")   # 보관 폴더로 옮겨 가는 폴더 (원본 가민 JSON과 DB는 로컬에 둔다)
 
 
 def apply_root(root: Path) -> None:
@@ -342,11 +342,11 @@ def configured_root() -> Path:
 
 
 def change_root(raw: str) -> dict:
-    """동기화 폴더를 바꾼다. 새 폴더 안에 없는 하위 폴더는 현재 것을 복사해 가고(원본은 지우지 않음), 바로 적용한다."""
+    """보관 폴더를 바꾼다. 새 폴더 안에 없는 하위 폴더는 현재 것을 복사해 가고(원본은 지우지 않음), 바로 적용한다."""
     raw = raw.strip()
     new = ROOT if not raw else Path(raw).expanduser()
     if not new.is_absolute():
-        raise ApiError(400, "동기화 폴더는 전체 경로(예: G:\\내 드라이브\\Garmin)로 적어 주세요")
+        raise ApiError(400, "보관 폴더는 전체 경로(예: G:\\내 드라이브\\Garmin)로 적어 주세요")
     new = new.resolve()
     old = CFG["root"]
     with FILE_LOCK:
@@ -384,7 +384,7 @@ def snapshot_files() -> list[tuple[Path, str]]:
 
 
 def make_snapshot() -> dict:
-    """리포트/피드백/계획/사전(.md)을 zip 하나로 묶어 동기화 폴더의 archive/ 에 둔다."""
+    """리포트/피드백/계획/사전(.md)을 zip 하나로 묶어 보관 폴더의 archive/ 에 둔다."""
     files = snapshot_files()
     if not files:
         raise ApiError(400, "백업할 파일이 없습니다")
@@ -918,7 +918,7 @@ def api_sync(body: dict) -> dict:
         for last, count in contiguous_runs(days):
             first = (date.fromisoformat(last) - timedelta(days=count - 1)).isoformat()
             # 수집 -> 리포트 순서로 직접 호출한다. (garmin.py sync 는 리포트를 앱 폴더의 reports/ 에 만들어서,
-            # 동기화 폴더를 바꾼 뒤에는 새 리포트가 앱에 보이지 않았다.)
+            # 보관 폴더를 바꾼 뒤에는 새 리포트가 앱에 보이지 않았다.)
             code, out = run_script([str(ROOT / "garmin_export.py"), "--date", last, "--days", str(count),
                                     "--output", str(CFG["data"])])
             if code != 0:
@@ -1077,7 +1077,7 @@ def api_settings_get() -> dict:
 def api_settings_set(body: dict) -> dict:
     email, inbox, root = body.get("email"), body.get("inbox"), body.get("root")
     if root is not None and (not isinstance(root, str) or len(root) > 500 or any(c in root for c in "\"'#\r\n\0")):
-        raise ApiError(400, "동기화 폴더 경로가 올바르지 않습니다")
+        raise ApiError(400, "보관 폴더 경로가 올바르지 않습니다")
     if email is not None:
         if not isinstance(email, str) or len(email) > 200 or not re.fullmatch(r"[^\s\"'#=]+@[^\s\"'#=]+", email.strip()):
             raise ApiError(400, "이메일 형식이 올바르지 않습니다")
@@ -1215,12 +1215,12 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Garmin 리포트 웹앱")
     p.add_argument("--host", default="127.0.0.1", help="기본 127.0.0.1 (본인 PC에서만 접속)")
     p.add_argument("--port", type=int, default=8765)
-    p.add_argument("--reports", type=Path, default=None, help="리포트 폴더 (생략하면 동기화 폴더 설정/reports)")
+    p.add_argument("--reports", type=Path, default=None, help="리포트 폴더 (생략하면 보관 폴더 설정/reports)")
     p.add_argument("--data", type=Path, default=ROOT / "data")
     p.add_argument("--no-browser", action="store_true", help="브라우저를 자동으로 열지 않음")
     args = p.parse_args()
     CFG["data"] = args.data.resolve()
-    if args.reports:   # 예전 방식: 리포트 폴더의 부모를 동기화 폴더로 본다
+    if args.reports:   # 예전 방식: 리포트 폴더의 부모를 보관 폴더로 본다
         apply_root(args.reports.resolve().parent)
         CFG["reports"] = args.reports.resolve()
     else:
@@ -1243,7 +1243,7 @@ def main() -> int:
         print(f"{args.host}:{args.port} 를 열 수 없습니다 ({err}). --port 로 다른 번호를 지정하세요.", file=sys.stderr)
         return 1
     url = f"http://{'127.0.0.1' if args.host in ('localhost', '::1') else args.host}:{args.port}/"
-    print(f"동기화 폴더: {CFG['root']}\n리포트 폴더: {CFG['reports']}\n실행 중: {url}  (종료: Ctrl+C)")
+    print(f"보관 폴더: {CFG['root']}\n리포트 폴더: {CFG['reports']}\n실행 중: {url}  (종료: Ctrl+C)")
     if not args.no_browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:

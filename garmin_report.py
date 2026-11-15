@@ -268,7 +268,8 @@ def strength_section(sets_json: Any, names: dict[str, str], unit_cfg: str,
             continue
         ex = (s.get("exercises") or [{}])[0] or {}
         code = ex.get("name") or ex.get("category") or "UNKNOWN"
-        label = s.get("_label") or names.get(ex.get("name") or "") or names.get(ex.get("category") or "") or prettify(code)
+        # 세부 이름(name)을 우선한다. name 이 없을 때만 큰 분류(category)로 내려간다 (GOBLET_SQUAT 이 그냥 '스쿼트'로 합쳐지지 않게).
+        label = s.get("_label") or names.get(code) or prettify(code)
         if s.get("_corrected"):
             label += " ✎"
         reps = s.get("repetitionCount") or 0

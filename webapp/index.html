@@ -95,8 +95,14 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .fr{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 10px;margin-bottom:8px}
 .fr label{flex:0 0 150px;font-size:13px;color:var(--muted);padding-top:8px}
 .fr textarea{flex:1 1 240px;min-height:40px;resize:vertical;padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:var(--sheet);overflow:hidden}
-.dwrap{display:flex;flex-wrap:wrap;min-height:320px}
-.dlist{flex:0 0 260px;max-width:100%;padding:16px;border-right:1px solid var(--line2);display:flex;flex-direction:column;gap:18px}
+.docs{flex:0 0 var(--dw,440px);min-width:0;position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto;background:var(--sheet);border:1px solid var(--line);border-radius:6px}
+.dph{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line2);position:sticky;top:0;background:var(--sheet);z-index:1}
+.dph h2{margin:0;font-size:15px}
+.docs .mhead,.docs .mbody{padding-left:16px;padding-right:16px}
+.docs .dlist{border:0;flex:1 1 100%}
+.docbtn{margin-left:auto}
+.dwrap{display:block;min-height:200px}
+.dlist{max-width:100%;padding:16px;border-right:1px solid var(--line2);display:flex;flex-direction:column;gap:18px}
 .dview{flex:1 1 420px;min-width:0}
 .dk{border:1px dashed transparent;border-radius:6px}
 .dk:hover{border-color:var(--line)}
@@ -105,7 +111,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .dit{width:100%;min-height:40px;padding:4px 8px 4px 12px;border:0;border-left:3px solid var(--line);border-radius:0;background:none;display:flex;justify-content:space-between;align-items:center;gap:8px;text-align:left;font-size:14px}
 .dit:hover{background:var(--chip)}
 .dit[aria-current="true"]{border-left-color:var(--accent);background:var(--field);color:var(--accent-fg);font-weight:600}
-@media (max-width:900px){.dlist{flex:1 1 100%;border-right:0;border-bottom:1px solid var(--line2)}}
+@media (max-width:900px){.docs{flex:1 1 100%;position:static;max-height:none}}
 .fbai h3{margin:0;font-size:15px;color:var(--accent-fg)}
 .fbai .fbh{margin:16px 0 6px}
 .fb{margin-top:32px;padding-top:4px;border-top:1px solid var(--line)}
@@ -165,7 +171,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 #drop[hidden]{display:none}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:90vw;padding:10px 16px;border-radius:6px;background:#14191C;color:#fff;font-size:14px;z-index:30;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.show{opacity:1}
-@media (max-width:900px){.claude{flex:1 1 100%!important;position:static;max-height:none}.split{display:none!important}.top,.tabs{padding-left:16px;padding-right:16px}.cols{padding:16px}.mbody,.mhead{padding-left:16px;padding-right:16px}.side{max-width:none}}
+@media (max-width:900px){.claude{flex:1 1 100%!important;position:static;max-height:none}.docs{flex:1 1 100%!important}.split{display:none!important}.top,.tabs{padding-left:16px;padding-right:16px}.cols{padding:16px}.mbody,.mhead{padding-left:16px;padding-right:16px}.side{max-width:none}}
 .hist{padding:16px 20px 28px}
 .hbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
 .hbar input[type=date]{min-height:36px;padding:0 8px;border:1px solid var(--line);border-radius:4px;background:var(--sheet)}
@@ -206,10 +212,10 @@ a.btn:hover{background:var(--field)}
 <div class="cols">
   <aside class="card side" id="side" aria-label="파일 목록"></aside>
   <main class="card main" id="main"></main>
-  <section class="card main docs" id="docs" aria-label="문서" hidden></section>
-  <section class="card main hist" id="hist" aria-label="기간별 기록" hidden></section>
+    <section class="card main hist" id="hist" aria-label="기간별 기록" hidden></section>
   <div class="split" id="split" role="separator" aria-orientation="vertical" aria-label="AI 창 너비 조절 (좌우 방향키)" tabindex="0"></div>
   <aside class="card claude" id="claude" aria-label="AI에게 보내기"></aside>
+  <aside class="card docs" id="docs" aria-label="문서" hidden></aside>
 </div>
 <div id="modal-root"></div>
 <div id="drop" hidden>.md 파일을 여기에 놓으세요</div>
@@ -217,12 +223,12 @@ a.btn:hover{background:var(--field)}
 
 <script>
 "use strict";
-const TABS=[["report","리포트"],["claude","AI"],["split","리포트 + AI"],["docs","문서"],["hist","기록"]];
+const TABS=[["report","리포트"],["claude","AI"],["split","리포트 + AI"],["hist","기록"]];
 const QUESTIONS=["이 날 회복 상태와 운동 강도를 평가해 줘","내일 운동 계획을 제안해 줘","메모에 적을 내용을 정리해 줘"];
 const DEFAULT_AIS=[["Claude","https://claude.ai/new"],["ChatGPT","https://chatgpt.com/"],["Gemini","https://gemini.google.com/app"]];
 const WD="월화수목금토일";
 const S={fb:[],fbEdit:false,days:[],today:"",sel:null,md:"",tab:"split",dirty:new Set(),question:QUESTIONS[0],g:null,up:[],uploadFiles:new Map(),settings:null,
-  claudeW:Math.max(320,+store("claudeW")||460),openWeeks:new Set([].concat(loadJson("weeks",[]))),revealed:null,ais:loadAis(),popup:store("popup")!=="0",ref:store("ref")==="1",hasRef:false,docs:{kinds:[],sel:null,text:"",edit:false,isNew:false,upKind:"plan"},asFile:store("asfile")!=="0",plan:store("plan")==="1",hasPlan:false,graph:store("graph")||"none",ser:[],h:{mode:"week",from:"",to:"",data:null,err:""}};
+  claudeW:Math.max(320,+store("claudeW")||460),openWeeks:new Set([].concat(loadJson("weeks",[]))),revealed:null,ais:loadAis(),popup:store("popup")!=="0",ref:store("ref")==="1",hasRef:false,docOpen:store("docOpen")==="1",docs:{kinds:[],sel:null,text:"",edit:false,isNew:false,upKind:"plan"},asFile:store("asfile")!=="0",plan:store("plan")==="1",hasPlan:false,graph:store("graph")||"none",ser:[],h:{mode:"week",from:"",to:"",data:null,err:""}};
 
 /* ---------- utils ---------- */
 const $=s=>document.querySelector(s);
@@ -350,9 +356,9 @@ async function selectDay(day){
 function render(){renderTabs();renderSide();renderMain();renderClaude();layout()}
 function layout(){
   const t=S.tab;
-  $("#main").hidden=t==="claude"||t==="docs"||t==="hist";
-  $("#side").hidden=t==="docs"||t==="hist";
-  $("#docs").hidden=t!=="docs";
+  $("#main").hidden=t==="claude"||t==="hist";
+  $("#side").hidden=t==="hist";
+  $("#docs").hidden=!S.docOpen;$("#docs").style.setProperty("--dw","440px");
   $("#hist").hidden=t!=="hist";
   $("#claude").hidden=!(t==="claude"||t==="split");
   $("#claude").classList.toggle("wide",t==="claude");
@@ -397,12 +403,13 @@ function renderDocs(){
   const D=S.docs,el=$("#docs");if(!el)return;
   const list=D.kinds.map(k=>`<section class="dk" data-kind-drop="${k.kind}"><div class="dkh"><h2>${esc(k.label)}</h2><span class="row" style="gap:6px"><button class="btn small" data-act="doc-new" data-kind="${k.kind}">새 문서</button><button class="btn small" data-act="doc-upload" data-kind="${k.kind}">파일 올리기</button></span></div>${k.items.length?k.items.map(i=>`<button class="dit" data-act="doc-open" data-kind="${k.kind}" data-name="${esc(i.name)}" aria-current="${D.sel&&D.sel.kind===k.kind&&D.sel.name===i.name}"><span>${esc(i.name.replace(/\.md$/,""))}</span><span class="muted">${esc(i.mtime.slice(5,10))}</span></button>`).join(""):`<div class="muted" style="font-size:12px;line-height:1.6;padding:6px 0">아직 없습니다. .md 파일을 여기에 놓거나 '파일 올리기'를 누르세요.</div>`}</section>`).join("");
   let view;
-  if(!D.sel)view=`<div class="empty">왼쪽에서 문서를 고르거나 새로 만드세요.<br><span style="font-size:13px">훈련 계획과 사전은 AI에게 보낼 때 '훈련 계획 포함', '사전 포함'을 켜면 리포트와 함께 전달됩니다.</span></div>`;
+  if(!D.sel)view=`<div class="empty">문서를 고르거나 새로 만드세요.<br><span style="font-size:13px">훈련 계획과 사전은 AI에게 보낼 때 '훈련 계획 포함', '사전 포함'을 켜면 리포트와 함께 전달됩니다.</span></div>`;
   else{
     const lab=(D.kinds.find(k=>k.kind===D.sel.kind)||{}).label||"";
     view=`<div class="mhead"><div><h2 style="font-size:24px;font-family:inherit">${esc(D.sel.name.replace(/\.md$/,""))}</h2><span class="muted" style="font-size:12px">${esc(lab)} · ${esc(D.sel.name)}</span></div><div class="row">${D.edit?`<button class="btn primary small" data-act="doc-save">저장</button><button class="btn small" data-act="doc-cancel">취소</button>`:`<button class="btn small" data-act="doc-edit">편집</button><button class="btn small" data-act="doc-delete">삭제</button>`}</div></div><div class="mbody">${D.edit?`<textarea class="fbe" id="doc-text" style="min-height:420px;margin-top:12px" spellcheck="false">${esc(D.text)}</textarea>`:`<div class="rep">${renderMd(D.text)}</div>`}</div>`;
   }
-  el.innerHTML=`<div class="dwrap"><div class="dlist">${list}</div><div class="dview">${view}</div></div><input id="doc-fi" type="file" accept=".md,text/markdown,text/plain" multiple hidden>`;
+  const head=`<div class="dph"><h2>${D.sel?"문서":"문서 목록"}</h2><span class="row" style="gap:6px">${D.sel?`<button class="btn small" data-act="doc-list">← 목록</button>`:""}<button class="btn small" data-act="doc-toggle" aria-label="문서 창 닫기">닫기 ✕</button></span></div>`;
+  el.innerHTML=`${head}<div class="dwrap">${D.sel?`<div class="dview">${view}</div>`:`<div class="dlist">${list}</div>`}</div><input id="doc-fi" type="file" accept=".md,text/markdown,text/plain" multiple hidden>`;
 }
 async function docUpload(kind,files){
   files=[...files];if(!files.length)return;
@@ -470,7 +477,7 @@ function renderHist(){
   el.innerHTML=`<div class="hist">${bar}<h2 style="font-size:20px;font-family:inherit;margin:4px 0">${c.start} ~ ${c.end}</h2><div class="muted" style="font-size:12px">비교: ${p.start} ~ ${p.end} · 심박은 손목 센서 기준</div>${stats}${zb}${types}${weeks}${days}${out}</div>`;
 }
 function renderTabs(){
-  $("#tabs").innerHTML=TABS.map(([k,v])=>`<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${v}</button>`).join("");
+  $("#tabs").innerHTML=TABS.map(([k,v])=>`<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${v}</button>`).join("")+`<button class="tab docbtn" data-act="doc-toggle" aria-pressed="${S.docOpen}">문서 ${S.docOpen?"닫기 ✕":"열기 ▸"}</button>`;
 }
 function weekStart(d){const dt=parseDay(d);dt.setDate(dt.getDate()-((dt.getDay()+6)%7));return fmtLocal(dt)}
 function renderSide(){
@@ -815,7 +822,7 @@ document.addEventListener("click",async ev=>{
   const t=ev.target.closest("[data-act],[data-tab],[data-day],[data-q],[data-preset],[data-overwrite],[data-overlay],[data-week],[data-ai]");
   if(!t)return;
   if(t.dataset.overlay!==undefined){if(ev.target===t&&!(S.g&&S.g.running))closeModal();return}
-  if(t.dataset.tab){if(S.tab!=="hist")store("tab0",S.tab);S.tab=t.dataset.tab;store("tab",S.tab);renderTabs();layout();if(S.tab==="docs")showDocs();if(S.tab==="hist")showHist();return}   // 메인을 다시 그리지 않아 입력 중인 메모가 유지된다
+  if(t.dataset.tab){if(S.tab!=="hist")store("tab0",S.tab);S.tab=t.dataset.tab;store("tab",S.tab);renderTabs();layout();if(S.tab==="hist")showHist();return}   // 메인을 다시 그리지 않아 입력 중인 메모가 유지된다
   if(t.dataset.week){const wk=t.dataset.week;setWeek(wk,!S.openWeeks.has(wk));renderSide();return}
   if(t.dataset.ai!==undefined)return openAi(+t.dataset.ai);
   if(t.dataset.day)return selectDay(t.dataset.day);
@@ -823,6 +830,8 @@ document.addEventListener("click",async ev=>{
   if(t.dataset.preset){const [a,b]=t.dataset.preset.split("|");S.g.start=a;S.g.end=b;refreshGarmin();return}
   if(t.dataset.overwrite)return overwrite(+t.dataset.overwrite);
   switch(t.dataset.act){
+    case"doc-toggle":S.docOpen=!S.docOpen;store("docOpen",S.docOpen?"1":"0");renderTabs();layout();if(S.docOpen)showDocs();return;
+    case"doc-list":if(S.docs.edit&&!confirm("편집 중인 내용이 사라집니다. 목록으로 갈까요?"))return;S.docs.sel=null;S.docs.edit=false;S.docs.isNew=false;renderDocs();return;
     case"h-pre":{const k=t.dataset.k;S.h.mode=k==="week"||k==="month"?k:"range";[S.h.from,S.h.to]=histRange(k==="week"||k==="month"?k:+k,+t.dataset.o);return loadHist()}
     case"h-prev":return histShift(-1);
     case"h-next":return histShift(1);
@@ -1000,12 +1009,12 @@ window.addEventListener("beforeunload",ev=>{if(S.dirty.size){ev.preventDefault()
 /* 파일 드래그 앤 드롭: 화면 어디에 놓아도 된다 */
 let dragDepth=0;
 const hasFiles=ev=>ev.dataTransfer&&[...(ev.dataTransfer.types||[])].includes("Files");
-window.addEventListener("dragenter",ev=>{if(hasFiles(ev)){dragDepth++;if(S.tab!=="docs")$("#drop").hidden=false}});
+window.addEventListener("dragenter",ev=>{if(hasFiles(ev)){dragDepth++;if(!S.docOpen||S.docs.sel)$("#drop").hidden=false}});
 window.addEventListener("dragleave",ev=>{if(hasFiles(ev)){dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)$("#drop").hidden=true}});
 window.addEventListener("dragover",ev=>{if(hasFiles(ev))ev.preventDefault()});
 window.addEventListener("drop",ev=>{
   if(!hasFiles(ev))return;ev.preventDefault();dragDepth=0;$("#drop").hidden=true;
-  const dk=S.tab==="docs"&&ev.target.closest&&ev.target.closest("[data-kind-drop]");
+  const dk=S.docOpen&&ev.target.closest&&ev.target.closest("[data-kind-drop]");
   if(dk)docUpload(dk.dataset.kindDrop,ev.dataTransfer.files);else handleFiles(ev.dataTransfer.files);
 });
 
@@ -1014,7 +1023,7 @@ window.addEventListener("drop",ev=>{
   initSplit();
   const saved=store("tab");if(TABS.some(t=>t[0]===saved))S.tab=saved;
   try{await loadDays(false);await loadReport()}catch(e){toast(e.error)}
-  render();refreshInbox();if(S.tab==="hist")showHist();
+  render();refreshInbox();if(S.tab==="hist")showHist();if(S.docOpen)showDocs();
   window.addEventListener("focus",refreshInbox);
 })();
 </script>

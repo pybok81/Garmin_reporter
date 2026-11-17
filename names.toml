@@ -6,6 +6,10 @@
 # 무게 단위: "auto"(1000 이상이면 g으로 판단) | "g" | "kg"
 weight_unit = "auto"
 
+# 힌지류(데드리프트 계열) 중 가민 이름으로 홈/웨이트를 구분할 수 없을 때, 이 무게(kg) 이하면 집(홈) 운동으로 본다.
+# 가민 이름에 KETTLEBELL 이 들어 있으면 무게와 상관없이 홈으로 본다. 주간 리포트의 '웨이트:홈 비율'에만 쓰인다.
+home_hinge_max_kg = 20
+
 # 무게가 0이어도 정상인 맨몸/시간 운동. 여기에 없는데 무게가 0이면 '무게?'(미입력)로 표시됩니다.
 bodyweight = [
   "PULL_UP", "CHIN_UP", "PUSH_UP", "PLANK", "SIT_UP", "CRUNCH",
@@ -154,3 +158,30 @@ CABLE_ROW = "등"
 INVERTED_ROW = "등"
 T_BAR_ROW = "등"
 LAT_PULLDOWN = "등"
+
+# 주간 리포트의 '웨이트 구분별 세트' 구분. 값은 푸시 / 풀 / 하체 / 코어.
+# 키가 운동 코드(대문자+밑줄)면 그 운동만, 부위 이름(가슴·등·하체·코어)이면 [parts]가 그 부위인 운동 전체에 적용됩니다. 코드가 부위보다 우선합니다.
+# 여기에 없는 운동은 주간 리포트의 '미분류'에 이름과 함께 나오니, 보이면 한 줄씩 추가하세요.
+
+[groups]
+"가슴" = "푸시"
+"등" = "풀"
+"하체" = "하체"
+"코어" = "코어"
+SHOULDER_PRESS = "푸시"
+LATERAL_RAISE = "푸시"
+DUMBBELL_LATERAL_RAISE = "푸시"
+TRICEPS_PRESSDOWN = "푸시"
+TRICEPS_EXTENSION = "푸시"
+BENCH_DIP = "푸시"
+SEATED_REAR_LATERAL_RAISE = "풀"
+FACE_PULL = "풀"
+CABLE_EXTERNAL_ROTATION = "풀"
+SHRUG = "풀"
+CURL = "풀"
+CROSS_BODY_DUMBBELL_HAMMER_CURL = "풀"
+
+# 주간 목표 세트 수(선택). 값을 적은 운동만 주간 리포트에 "달성 n/목표"로 나옵니다. 키는 운동 코드.
+# 예시(필요하면 주석을 풀어 쓰세요):
+# [targets]
+# PULL_UP = 18

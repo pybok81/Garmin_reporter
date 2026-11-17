@@ -245,22 +245,23 @@ def weight_kg(raw_w: Any, unit: str, grams_likely: bool) -> float | None:
     return float(raw_w)
 
 
-def strength_section(sets_json: Any, names: dict[str, str], unit_cfg: str,
-                     fixes: list[dict] | None = None) -> list[str]:
+def classify_sets(sets_json: Any, names: dict[str, str], unit_cfg: str,
+                  fixes: list[dict] | None = None) -> dict | None:
+    """운동 세트를 보정(직접 수정)까지 적용해 세트 하나씩 분류한다. 일일 리포트와 주간 집계가 같이 쓴다.
+
+    세트 기록이 없으면 None. rows 는 쉬는 세트를 뺀 운동 세트 목록이고, 삭제된 세트는 들어 있지 않다.
+    각 행: code(세부 이름 우선), name, category, base_label(한글 이름), label(수정한 세트는 ✎ 붙임), part, reps, kg, bw, dur, corrected.
+    """
     sets_json = ok(sets_json)
     sets = (sets_json or {}).get("exerciseSets") if isinstance(sets_json, dict) else None
     if not sets:
-        return ["", "_세트 기록 없음 (Garmin 운동 세트가 비어 있음)_"]
+        return None
 
     before = sets
     sets, fix_warn, fix_done = corr.apply_sets(sets, fixes or [])
-    fix_lines = corr.describe(before, fixes, names, fix_done) if fixes else []
     weights = [s.get("weight") for s in sets if isinstance(s.get("weight"), (int, float)) and s["weight"] > 0]
     grams_likely = bool(weights) and max(weights) >= 1000  # 1000 이상이면 g으로 추정
-    unit_note = {"g": "g 단위로 설정됨", "kg": "kg 단위로 설정됨"}.get(
-        unit_cfg, "무게 단위 자동 판정: " + ("g→kg 변환" if grams_likely else "kg 그대로") + " (맞지 않으면 names.toml의 weight_unit 지정)")
-
-    groups: list[dict] = []
+    rows: list[dict] = []
     rest_total = 0.0
     for s in sets:
         if s.get("setType") == "REST":
@@ -269,20 +270,42 @@ def strength_section(sets_json: Any, names: dict[str, str], unit_cfg: str,
         ex = (s.get("exercises") or [{}])[0] or {}
         code = ex.get("name") or ex.get("category") or "UNKNOWN"
         # 세부 이름(name)을 우선한다. name 이 없을 때만 큰 분류(category)로 내려간다 (GOBLET_SQUAT 이 그냥 '스쿼트'로 합쳐지지 않게).
-        label = s.get("_label") or names.get(code) or prettify(code)
+        base = names.get(code) or prettify(code)
+        label = s.get("_label") or base
         if s.get("_corrected"):
             label += " ✎"
-        reps = s.get("repetitionCount") or 0
         w = s["_wkg"] if "_wkg" in s else weight_kg(s.get("weight"), unit_cfg, grams_likely)
         codes = [(ex.get("name") or "").upper(), (ex.get("category") or "").upper()]
-        part = next((PARTS[c] for c in codes if c in PARTS), "미분류")
+        rows.append({
+            "code": code, "name": (ex.get("name") or "").upper(), "category": (ex.get("category") or "").upper(),
+            "base_label": s.get("_label") or base, "label": label,
+            "part": next((PARTS[c] for c in codes if c in PARTS), "미분류"),
+            "reps": s.get("repetitionCount") or 0, "kg": w, "bw": any(c in BODYWEIGHT for c in codes),
+            "dur": s.get("duration") or 0, "corrected": bool(s.get("_corrected")),
+        })
+    return {"rows": rows, "before": before, "fix_warn": fix_warn, "fix_done": fix_done,
+            "grams_likely": grams_likely, "rest_total": rest_total}
+
+
+def strength_section(sets_json: Any, names: dict[str, str], unit_cfg: str,
+                     fixes: list[dict] | None = None) -> list[str]:
+    c = classify_sets(sets_json, names, unit_cfg, fixes)
+    if c is None:
+        return ["", "_세트 기록 없음 (Garmin 운동 세트가 비어 있음)_"]
+    before, fix_warn, fix_done, grams_likely, rest_total = c["before"], c["fix_warn"], c["fix_done"], c["grams_likely"], c["rest_total"]
+    fix_lines = corr.describe(before, fixes, names, fix_done) if fixes else []
+    unit_note = {"g": "g 단위로 설정됨", "kg": "kg 단위로 설정됨"}.get(
+        unit_cfg, "무게 단위 자동 판정: " + ("g→kg 변환" if grams_likely else "kg 그대로") + " (맞지 않으면 names.toml의 weight_unit 지정)")
+
+    groups: list[dict] = []
+    for r in c["rows"]:
+        label = r["label"]
         if groups and groups[-1]["label"] == label:
             g = groups[-1]
         else:
-            g = {"label": label, "part": part, "sets": []}
+            g = {"label": label, "part": r["part"], "sets": []}
             groups.append(g)
-        is_bw = any(c in BODYWEIGHT for c in codes)
-        g["sets"].append((reps, w, is_bw, s.get("duration") or 0))
+        g["sets"].append((r["reps"], r["kg"], r["bw"], r["dur"]))
 
     out = ["", "**웨이트 세트**", "", "| 운동 | 세트 | 반복×중량 | 총 반복 | 볼륨 |", "|---|---|---|---|---|"]
     total_sets = total_reps = 0

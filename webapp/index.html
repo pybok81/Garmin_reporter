@@ -489,6 +489,12 @@ function renderHist(){
   const zb=zt?`<div class="hh">심박존 시간 (분)</div><div class="hz" role="img" aria-label="심박존 시간">${z.slice(1).map((m,i)=>`<i style="width:${m/zt*100}%;background:var(--z${i+1})"></i>`).join("")}</div><div class="zl">${z.slice(1).map((m,i)=>`<span style="--c:var(--z${i+1})">Z${i+1} ${m}분</span>`).join("")}<span class="muted">Z1 미만 ${z[0]}분 (막대에서 제외)</span></div>`:"";
   const th=a=>`<tr>${a.map(x=>`<th>${x}</th>`).join("")}</tr>`,td=a=>`<tr>${a.map(x=>`<td>${x}</td>`).join("")}</tr>`;
   const types=c.types.length?`<div class="hh">종류별</div><div class="tw"><table><thead>${th(["종류","횟수","시간","거리","평균 심박","세트","부하"])}</thead><tbody>${c.types.map(t=>td([t.name,t.count,t.hours+"h",hv(t.km,"km"),hv(t.avgHr),hv(t.sets),t.load])).join("")}</tbody></table></div>`:"";
+  const W=D.weight;
+  const wt=W&&W.rawDays?(()=>{
+    const g=W.groups,r=(n,v,sub)=>`<tr${sub?' class="muted"':""}><td>${sub?"↳ ":""}${n}</td><td>${v.sets}</td><td>${v.reps}</td></tr>`;
+    const un=W.unclassified.reduce((a,x)=>a+x.sets,0),h=W.hinge;
+    return `<div class="hh">웨이트 구분별 세트</div><div class="tw"><table><thead>${th(["구분","세트","반복"])}</thead><tbody>${r("푸시",g["푸시"])}${r("그중 푸시업",W.pushUp,1)}${r("풀",g["풀"])}${r("그중 풀업",W.pullUp,1)}${r("하체",g["하체"])}${r("코어",g["코어"])}${un?`<tr><td>미분류</td><td>${un}</td><td></td></tr>`:""}</tbody></table></div>
+    <div class="muted" style="font-size:13px;line-height:1.7;margin-top:6px">푸시:풀 ${g["푸시"].sets} : ${g["풀"].sets}${g["풀"].sets?` (풀 1 기준 푸시 ${(g["푸시"].sets/g["풀"].sets).toFixed(2)})`:""}${h.gym+h.home?` · 힌지류 웨이트:홈 ${h.gym} : ${h.home} (홈 = 케틀벨 또는 ${W.homeMaxKg}kg 이하)`:""}${un?`<br>미분류: ${W.unclassified.map(x=>esc(x.name)+" "+x.sets+"세트").join(", ")} (names.toml [groups]에 추가하면 구분됩니다)`:""}${W.targets.map(t=>t.goal?`<br>목표 ${esc(t.label)} ${t.done}/${t.goal}세트`:"").join("")}</div>`})():"";
   const weeks=D.weeks.length?`<div class="hh">주별</div><div class="tw"><table><thead>${th(["주","운동","시간","러닝","세트","부하","수면","HRV"])}</thead><tbody>${D.weeks.map(w=>td([w.start.slice(5)+" ~ "+w.end.slice(5),w.sessions,w.hours+"h",w.runKm+"km",w.sets,w.load,hv(w.sleepH,"h"),hv(w.hrv)])).join("")}</tbody></table></div>`:"";
   const rpt=new Set(S.days.map(d=>d.date));
   const days=`<div class="hh">날짜별 <span class="muted" style="font-weight:400">· 누르면 그날 리포트를 엽니다</span></div>`+(D.days.length?D.days.map(d=>{
@@ -497,7 +503,7 @@ function renderHist(){
     return `<button class="hrow${d.acts.length?"":" rest"}" data-act="h-day" data-d="${d.date}"${rpt.has(d.date)?"":" disabled title=\"이 날 리포트가 없습니다\""}><span class="dt">${d.date.slice(5)} ${d.weekday}</span><span class="ac">${ac}</span><span class="wl">${wl}</span></button>`}).join(""):`<div class="muted">이 기간에 기록이 없습니다.</div>`);
   const q=`from=${H.from}&to=${H.to}`;
   const out=`<div class="row" style="margin-top:16px;align-items:center"><button class="btn small" data-act="h-copy">요약을 AI용 텍스트로 복사</button><a class="btn small" href="/api/history.csv?kind=days&${q}" download="기록_${H.from}_${H.to}.csv">날짜별 CSV</a><a class="btn small" href="/api/history.csv?kind=activities&${q}" download="활동_${H.from}_${H.to}.csv">활동 전체 CSV</a><span class="muted" style="font-size:12px">DB 범위 ${esc(D.dbFrom||"")} ~ ${esc(D.dbTo||"")}</span></div>`;
-  el.innerHTML=`<div class="hist">${bar}<h2 style="font-size:20px;font-family:inherit;margin:4px 0">${c.start} ~ ${c.end}</h2><div class="muted" style="font-size:12px">비교: ${p.start} ~ ${p.end} · 심박은 손목 센서 기준</div>${stats}${zb}${types}${weeks}${days}${out}</div>`;
+  el.innerHTML=`<div class="hist">${bar}<h2 style="font-size:20px;font-family:inherit;margin:4px 0">${c.start} ~ ${c.end}</h2><div class="muted" style="font-size:12px">비교: ${p.start} ~ ${p.end} · 심박은 손목 센서 기준</div>${stats}${zb}${types}${wt}${weeks}${days}${out}</div>`;
 }
 function renderTabs(){
   $("#tabs").innerHTML=TABS.map(([k,v])=>`<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab===k}">${v}</button>`).join("")+`<button class="tab docbtn" data-act="doc-toggle" aria-pressed="${S.docOpen}">문서 ${S.docOpen?"닫기 ✕":"열기 ▸"}</button><button class="tab themebtn" data-act="theme" title="화면 색상: 자동 → 밝게 → 어둡게">${{auto:"◐ 자동",light:"☀ 밝게",dark:"☾ 어둡게"}[themeMode()]}</button>`;

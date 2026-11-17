@@ -297,7 +297,8 @@ def write_week(key: str) -> str | None:
     with FILE_LOCK:
         old_bytes = path.read_bytes() if path.is_file() else None
         old = old_bytes.decode("utf-8") if old_bytes is not None else None
-        text = wk.build(db_path(), key, old, date.today())
+        text = wk.build(db_path(), key, old, date.today(), data_root=CFG["data"], corr_root=CFG["root"],
+                        names_path=ROOT / "names.toml")
         if text is None:
             return None
         if old is not None and old.replace("\r\n", "\n") == text:
@@ -1147,7 +1148,13 @@ def _period_args(q: dict) -> tuple[str, str, str]:
 
 def api_history(q: dict) -> dict:
     mode, a, b = _period_args(q)
-    return history_view.build(db_path(), mode, a, b)
+    res = history_view.build(db_path(), mode, a, b)
+    if res.get("exists") and res["cur"]["sets"] and (date.fromisoformat(b) - date.fromisoformat(a)).days <= 34:
+        try:   # 웨이트 구분별 세트 (원본·수정에서 계산). 실패해도 요약은 그대로 보여 준다
+            res["weight"] = wk.weight_summary(CFG["data"], CFG["root"], date.fromisoformat(a), date.fromisoformat(b), ROOT / "names.toml")
+        except Exception as err:  # noqa: BLE001
+            sys.stderr.write(f"웨이트 구분별 세트 계산 실패: {type(err).__name__}: {err}\n")
+    return res
 
 
 def api_history_csv(q: dict) -> bytes:

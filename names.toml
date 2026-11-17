@@ -185,7 +185,27 @@ SHRUG = "풀"
 CURL = "풀"
 CROSS_BODY_DUMBBELL_HAMMER_CURL = "풀"
 
-# 주간 목표 세트 수(선택). 값을 적은 운동만 주간 리포트에 "달성 n/목표"로 나옵니다. 키는 운동 코드.
-# 예시(필요하면 주석을 풀어 쓰세요):
-# [targets]
+# 부위 안의 세부 구분(주간 리포트 '웨이트 부위별 세트'에 "↳"로 나옴). 값은 "부위/세부" 형식, 부위는 [parts]와 같아야 합니다.
+# 운동 코드 기준이라 여기에 없는 운동은 세부 줄 없이 부위 합계에만 들어갑니다. 슈러그는 일단 '승모'로 따로 둡니다.
+[subparts]
+SHOULDER_PRESS = "어깨/프레스"
+LATERAL_RAISE = "어깨/레터럴"
+DUMBBELL_LATERAL_RAISE = "어깨/레터럴"
+SEATED_REAR_LATERAL_RAISE = "어깨/후면"
+FACE_PULL = "어깨/후면"
+CABLE_EXTERNAL_ROTATION = "어깨/후면"
+SHRUG = "어깨/승모"
+TRICEPS_PRESSDOWN = "팔/삼두"
+TRICEPS_EXTENSION = "팔/삼두"
+BENCH_DIP = "팔/삼두"
+CURL = "팔/이두"
+CROSS_BODY_DUMBBELL_HAMMER_CURL = "팔/이두"
+
+# 주간 목표 세트 수(선택). 값을 적은 항목만 주간 리포트에 "n/목표 (부족·범위 안·초과)"로 나옵니다.
+# 키는 운동 코드, 부위("어깨"), 또는 세부("어깨/레터럴"). 값은 숫자 하나 또는 [최소, 최대].
+# 어깨 목표는 훈련방향.md 기준(레터럴 주 8~11, 후면 4~6, 프레스 주 1회 2~3세트).
+[targets]
+"어깨/레터럴" = [8, 11]
+"어깨/후면" = [4, 6]
+"어깨/프레스" = [2, 3]
 # PULL_UP = 18

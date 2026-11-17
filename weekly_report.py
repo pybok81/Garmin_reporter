@@ -59,6 +59,15 @@ def weeks_with_activity(db: sqlite3.Connection, only_days: list[str] | None = No
 
 
 GROUPS = ("푸시", "풀", "하체", "코어")
+PARTS = ("가슴", "등", "어깨", "팔", "하체", "코어", "전신", "미분류")
+
+
+def goal_text(t: dict) -> str:
+    """목표 범위 문장: 8~11세트 / 18세트 + 달성 상태."""
+    lo, hi, n = t["lo"], t["hi"], t["done"]
+    goal = f"{lo:g}세트" if lo == hi else f"{lo:g}~{hi:g}세트"
+    state = "부족" if n < lo else ("초과" if n > hi else "범위 안")
+    return f"{n}/{goal} ({state})"
 
 
 def weight_summary(data_root: Path, corr_root: Path, start: date, end: date, names_path: Path) -> dict:
@@ -70,7 +79,13 @@ def weight_summary(data_root: Path, corr_root: Path, start: date, end: date, nam
     cfg = tomllib.loads(names_path.read_text(encoding="utf-8")) if names_path.is_file() else {}
     names, unit_cfg = gr.load_names(names_path)          # PARTS·BODYWEIGHT 도 같이 채운다
     groups = {str(k).upper(): str(v) for k, v in (cfg.get("groups") or {}).items()}
-    targets = {str(k).upper(): v for k, v in (cfg.get("targets") or {}).items() if isinstance(v, (int, float))}
+    targets = {}
+    for k, v in (cfg.get("targets") or {}).items():          # 숫자 하나 또는 [최소, 최대] 범위
+        if isinstance(v, (int, float)):
+            targets[str(k)] = (float(v), float(v))
+        elif isinstance(v, list) and len(v) == 2 and all(isinstance(x, (int, float)) for x in v):
+            targets[str(k)] = (float(v[0]), float(v[1]))
+    subparts = {str(k).upper(): str(v) for k, v in (cfg.get("subparts") or {}).items()}
     home_max = float((cfg.get("settings") or {}).get("home_hinge_max_kg", 20))
 
     tot = {g: [0, 0] for g in GROUPS}
@@ -78,6 +93,8 @@ def weight_summary(data_root: Path, corr_root: Path, start: date, end: date, nam
     hinge = {"gym": 0, "home": 0, "noweight": 0}
     unclassified: dict[str, int] = {}
     by_code: dict[str, int] = {}
+    parts: dict[str, list[int]] = {}                       # 부위 → [세트, 반복]
+    subs: dict[str, list[int]] = {}                        # "어깨/레터럴" → [세트, 반복]
     n_days, n_sets = 0, 0
     d = start
     while d <= end:
@@ -94,6 +111,15 @@ def weight_summary(data_root: Path, corr_root: Path, start: date, end: date, nam
             for r in (c["rows"] if c else []):
                 n_sets += 1
                 codes = [r["name"], r["category"]]
+                pt = r["part"] or "미분류"
+                parts.setdefault(pt, [0, 0])
+                parts[pt][0] += 1
+                parts[pt][1] += r["reps"]
+                sp = next((subparts[x] for x in codes if x in subparts), None)
+                if sp:
+                    subs.setdefault(sp, [0, 0])
+                    subs[sp][0] += 1
+                    subs[sp][1] += r["reps"]
                 grp = next((groups[x] for x in codes if x in groups), None) or groups.get(r["part"].upper())
                 if grp not in tot:
                     unclassified[r["base_label"]] = unclassified.get(r["base_label"], 0) + 1
@@ -116,14 +142,24 @@ def weight_summary(data_root: Path, corr_root: Path, start: date, end: date, nam
                         if not kg:
                             hinge["noweight"] += 1
     done = []
-    for code, goal in targets.items():
-        done.append({"label": names.get(code) or gr.prettify(code), "done": by_code.get(code, 0), "goal": goal})
+    for key, (lo, hi) in targets.items():
+        if key.upper() in by_code:
+            label, n = names.get(key.upper()) or gr.prettify(key.upper()), by_code[key.upper()]
+        elif key in subs or key in parts:
+            label, n = key, (subs.get(key) or parts.get(key))[0]
+        else:
+            label, n = (names.get(key.upper()) or key), 0
+        done.append({"label": label, "done": n, "lo": lo, "hi": hi})
+    order = [p for p in PARTS if p in parts] + sorted(p for p in parts if p not in PARTS)
+    body = [{"part": p, "sets": parts[p][0], "reps": parts[p][1],
+             "subs": [{"name": k.split("/", 1)[1], "sets": v[0], "reps": v[1]}
+                      for k, v in subs.items() if k.split("/", 1)[0] == p]} for p in order]
     return {"rawDays": n_days, "sets": n_sets, "groups": {g: {"sets": v[0], "reps": v[1]} for g, v in tot.items()},
             "pullUp": {"sets": sub["PULL_UP"][0], "reps": sub["PULL_UP"][1]},
             "pushUp": {"sets": sub["PUSH_UP"][0], "reps": sub["PUSH_UP"][1]},
             "hinge": hinge, "homeMaxKg": home_max,
             "unclassified": [{"name": k, "sets": v} for k, v in sorted(unclassified.items(), key=lambda kv: -kv[1])],
-            "targets": done}
+            "targets": done, "body": body}
 
 
 def weight_markdown(w: dict) -> list[str]:
@@ -154,10 +190,18 @@ def weight_markdown(w: dict) -> list[str]:
             L.append(f"  - 무게 미입력 {h['noweight']}세트는 웨이트로 셈")
     if un:
         L.append("- 미분류(`names.toml [groups]`에 추가하면 구분됨): " + ", ".join(f"{x['name']} {x['sets']}세트" for x in w["unclassified"]))
-    for t in w["targets"]:
-        if t["goal"]:
-            L.append(f"- 주간 목표 {t['label']}: {t['done']}/{t['goal']:g}세트 ({t['done'] / t['goal'] * 100:.0f}%)")
     L += ["- 세트·반복만 셈 (워밍업 포함, 직접 수정한 세트는 수정값 기준)", ""]
+    if w.get("body"):
+        L += ["## 웨이트 부위별 세트", "", "| 부위 | 세트 | 반복 |", "|---|---|---|"]
+        for b in w["body"]:
+            L.append(f"| {b['part']} | {b['sets']} | {b['reps']} |")
+            for x in b["subs"]:
+                L.append(f"| ↳ {x['name']} | {x['sets']} | {x['reps']} |")
+        L += [f"| **합계** | **{w['sets']}** | |", ""]
+        for t in w["targets"]:
+            L.append(f"- 주간 목표 {t['label']}: {goal_text(t)}")
+        if w["targets"]:
+            L.append("")
     return L
 
 

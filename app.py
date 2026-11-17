@@ -319,6 +319,11 @@ def week_sync(days: list[str] | None = None) -> int:
     return sum(1 for k in keys if write_week(k) in ("new", "updated"))
 
 
+def api_weeks_rebuild(body: dict) -> dict:
+    """모든 주간 리포트를 DB·가민 원본에서 다시 만든다 (메모는 유지, 내용이 같은 주는 그대로)."""
+    return {"changed": week_sync(None), "weeks": len(list_weeks())}
+
+
 def list_days() -> list[dict]:
     out = []
     if CFG["reports"].is_dir():
@@ -1312,6 +1317,7 @@ class Handler(BaseHTTPRequestHandler):
                     "/api/doc/delete": api_doc_delete,
                     "/api/upload": api_upload,
                     "/api/report/rebuild": api_rebuild,
+                    "/api/weeks/rebuild": api_weeks_rebuild,
                     "/api/garmin/sync": api_sync,
                     "/api/settings": api_settings_set,
                     "/api/snapshot": lambda body: make_snapshot(),

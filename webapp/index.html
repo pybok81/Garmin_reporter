@@ -240,7 +240,7 @@ const TABS=[["report","리포트"],["claude","AI"],["split","리포트 + AI"],["
 const QUESTIONS=["이 날 회복 상태와 운동 강도를 평가해 줘","내일 운동 계획을 제안해 줘","메모에 적을 내용을 정리해 줘"];
 const DEFAULT_AIS=[["Claude","https://claude.ai/new"],["ChatGPT","https://chatgpt.com/"],["Gemini","https://gemini.google.com/app"]];
 const WD="월화수목금토일";
-const S={fb:[],fbEdit:false,days:[],today:"",sel:null,md:"",tab:"split",dirty:new Set(),question:QUESTIONS[0],g:null,up:[],uploadFiles:new Map(),settings:null,
+const S={fb:[],fbEdit:false,days:[],weeks:[],today:"",sel:null,md:"",tab:"split",dirty:new Set(),question:QUESTIONS[0],g:null,up:[],uploadFiles:new Map(),settings:null,
   claudeW:Math.max(320,+store("claudeW")||460),openWeeks:new Set([].concat(loadJson("weeks",[]))),revealed:null,ais:loadAis(),popup:store("popup")!=="0",ref:store("ref")==="1",hasRef:false,docOpen:store("docOpen")==="1",docs:{kinds:[],sel:null,text:"",edit:false,isNew:false,upKind:"plan"},asFile:store("asfile")!=="0",plan:store("plan")==="1",hasPlan:false,graph:store("graph")||"none",ser:[],h:{mode:"week",from:"",to:"",data:null,err:""}};
 
 /* ---------- utils ---------- */
@@ -250,8 +250,12 @@ const pad=n=>String(n).padStart(2,"0");
 const fmtLocal=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 const parseDay=s=>new Date(s+"T00:00:00");
 const addDays=(s,n)=>{const d=parseDay(s);d.setDate(d.getDate()+n);return fmtLocal(d)};
-const wdOf=s=>WD[(parseDay(s).getDay()+6)%7];
-const dayLabel=s=>`${s.slice(5)} (${wdOf(s)})`;
+const isWeek=k=>/^\d{4}-W\d{2}$/.test(k||"");
+const wdOf=s=>isWeek(s)?"주간":WD[(parseDay(s).getDay()+6)%7];
+const dayLabel=s=>isWeek(s)?`${s} 주간`:`${s.slice(5)} (${wdOf(s)})`;
+const WEEK_QUESTIONS=["이번 주 훈련을 평가해 줘 (부하·회복·균형)","다음 주 훈련 계획을 제안해 줘","주간 메모에 적을 내용을 정리해 줘"];
+const QS=()=>isWeek(S.sel)?WEEK_QUESTIONS:QUESTIONS;
+function syncQuestion(){const w=isWeek(S.sel),from=w?QUESTIONS:WEEK_QUESTIONS,to=w?WEEK_QUESTIONS:QUESTIONS,i=from.indexOf(S.question);if(i>=0)S.question=to[i]}
 function store(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}}
 function loadJson(k,d){try{const v=JSON.parse(store(k)||"null");return v===null?d:v}catch(e){return d}}
 function loadAis(){const v=loadJson("ais",null);return Array.isArray(v)&&v.length&&v.every(x=>Array.isArray(x)&&typeof x[0]==="string"&&/^https:\/\//.test(x[1]))?v:DEFAULT_AIS.map(x=>[...x])}
@@ -349,15 +353,16 @@ function replaceNote(md,id,text){
 
 /* ---------- load ---------- */
 async function loadDays(keepSel=true){
-  const d=await api("/api/days");S.days=d.days;S.today=d.today;S.hasPlan=!!d.hasPlan;S.hasRef=!!d.hasRef;S.rpeDoc=d.rpeDoc||null;
-  if(!keepSel||!S.days.some(x=>x.date===S.sel))S.sel=S.days.length?S.days[0].date:null;
+  const d=await api("/api/days");S.days=d.days;S.weeks=d.weeks||[];S.today=d.today;S.hasPlan=!!d.hasPlan;S.hasRef=!!d.hasRef;S.rpeDoc=d.rpeDoc||null;
+  if(!keepSel||!(S.days.some(x=>x.date===S.sel)||S.weeks.some(x=>x.key===S.sel)))S.sel=S.days.length?S.days[0].date:null;
 }
 async function loadReport(){
   S.fbEdit=false;S.fb=[];S.ser=[];
   if(!S.sel){S.md="";return}
+  syncQuestion();
   try{S.md=(await api("/api/report?date="+S.sel)).markdown}catch(e){S.md="";toast(e.error)}
   try{S.fb=(await api("/api/feedback?date="+S.sel)).items}catch(e){S.fb=[]}
-  try{S.ser=(await api("/api/series?date="+S.sel)).activities}catch(e){S.ser=[]}
+  if(!isWeek(S.sel)){try{S.ser=(await api("/api/series?date="+S.sel)).activities}catch(e){S.ser=[]}}
 }
 async function selectDay(day){
   if(day===S.sel)return;
@@ -500,7 +505,7 @@ function renderTabs(){
 function weekStart(d){const dt=parseDay(d);dt.setDate(dt.getDate()-((dt.getDay()+6)%7));return fmtLocal(dt)}
 function renderSide(){
   let html=`<h2>파일</h2>`;
-  if(!S.days.length)html+=`<div class="muted" style="font-size:13px;line-height:1.6;padding:8px 0">아직 리포트가 없습니다.<br>가민에서 가져오기나 .md 파일 올리기로 추가하세요.</div>`;
+  if(!S.days.length&&!S.weeks.length)html+=`<div class="muted" style="font-size:13px;line-height:1.6;padding:8px 0">아직 리포트가 없습니다.<br>가민에서 가져오기나 .md 파일 올리기로 추가하세요.</div>`;
   if(S.days.length&&store("weeks")===null&&!S.openWeeks.size)S.openWeeks.add(weekStart(S.days[0].date));
   if(S.sel&&S.sel!==S.revealed){S.revealed=S.sel;S.openWeeks.add(weekStart(S.sel))}   // 선택이 바뀌면 그 주를 펼친다
   const dayBtn=d=>{
@@ -510,17 +515,21 @@ function renderSide(){
     else badge=`<span class="badge ${d.notesFilled===d.notesTotal?"done":""}">메모 ${d.notesFilled}/${d.notesTotal}</span>`;
     return `<button class="day${d.workouts?"":" rest"}" data-day="${d.date}" aria-current="${d.date===S.sel}"><span><span class="t"><span class="num">${d.date.slice(5)}</span><span class="wd">${wdOf(d.date)}</span></span><span class="s">${d.workouts?esc(d.types.join(" · ")):"운동 없음"}</span></span><span class="row" style="gap:6px">${d.hasFeedback?`<span class="badge" title="AI 피드백 있음">피드백</span>`:""}${badge}</span></button>`;
   };
-  const weeks=[],map=new Map();
+  const weekBtn=w=>`<button class="day wkr" data-day="${w.key}" aria-current="${w.key===S.sel}"><span><span class="t"><span class="num">${w.key.slice(5)}</span><span class="wd">주간 리포트</span></span><span class="s">${w.start.slice(5)} ~ ${w.end.slice(5)}</span></span><span class="row" style="gap:6px">${w.hasFeedback?`<span class="badge" title="AI 피드백 있음">피드백</span>`:""}${w.ongoing?`<span class="badge warn">진행 중</span>`:`<span class="badge ${w.notesFilled?"done":""}">메모 ${w.notesFilled}/${w.notesTotal}</span>`}</span></button>`;
+  const weeks=[],map=new Map(),wmap=new Map();
   for(const d of S.days){const wk=weekStart(d.date);if(!map.has(wk)){map.set(wk,[]);weeks.push(wk)}map.get(wk).push(d)}
+  for(const w of S.weeks){wmap.set(w.start,w);if(!map.has(w.start)){map.set(w.start,[]);weeks.push(w.start)}}
+  weeks.sort().reverse();
+  if(S.sel&&isWeek(S.sel)){const w=wmap.size&&S.weeks.find(x=>x.key===S.sel);if(w&&S.sel!==S.revealed){S.revealed=S.sel;S.openWeeks.add(w.start)}}
   for(const wk of weeks){
-    const list=map.get(wk),open=S.openWeeks.has(wk),todo=list.reduce((a,d)=>a+(d.notesTotal-d.notesFilled),0);
-    html+=`<button class="weekh" data-week="${wk}" aria-expanded="${open}"><span class="chev" aria-hidden="true"></span><span>${wk.slice(5)} ~ ${addDays(wk,6).slice(5)} 주</span><span class="muted wk-s">${list.length}일${todo?` · 메모 ${todo}개 남음`:""}</span></button>`;
-    if(open)html+=`<div class="weekb">${list.map(dayBtn).join("")}</div>`;
+    const list=map.get(wk),w=wmap.get(wk),open=S.openWeeks.has(wk),todo=list.reduce((a,d)=>a+(d.notesTotal-d.notesFilled),0);
+    html+=`<button class="weekh" data-week="${wk}" aria-expanded="${open}"><span class="chev" aria-hidden="true"></span><span>${wk.slice(5)} ~ ${addDays(wk,6).slice(5)} 주</span><span class="muted wk-s">${list.length?list.length+"일":"주간 리포트만"}${todo?` · 메모 ${todo}개 남음`:""}</span></button>`;
+    if(open)html+=`<div class="weekb">${w?weekBtn(w):""}${list.map(dayBtn).join("")}</div>`;
   }
   $("#side").innerHTML=html;
 }
 function setWeek(wk,open){open?S.openWeeks.add(wk):S.openWeeks.delete(wk);store("weeks",JSON.stringify([...S.openWeeks]))}
-function curInfo(){return S.days.find(d=>d.date===S.sel)}
+function curInfo(){return S.days.find(d=>d.date===S.sel)||S.weeks.find(w=>w.key===S.sel)}
 const FB_STD=["ChatGPT","gemini","claude"];
 function fbNames(items){
   const names=[];
@@ -629,9 +638,9 @@ function renderMain(){
   const el=$("#main");
   if(!S.sel){el.innerHTML=`<div class="mbody"><div class="empty">표시할 리포트가 없습니다.<br>왼쪽 위 버튼으로 가져오거나 .md 파일을 끌어다 놓으세요.</div></div>`;return}
   const info=curInfo();
-  const rebuild=info&&info.hasRaw?`<button class="btn small" data-act="rebuild">리포트 다시 만들기</button>`:"";
+  const rebuild=info&&info.hasRaw?`<button class="btn small" data-act="rebuild">${isWeek(S.sel)?"주간 리포트 다시 만들기":"리포트 다시 만들기"}</button>`:"";
   const body=`<div class="rep">${renderReportWithNotes(S.md)}${graphBlock()}${feedbackBlock()}</div>`;
-  el.innerHTML=`<div class="mhead"><div><h2><span class="num">${S.sel.slice(5)}</span><span class="wd">${wdOf(S.sel)}</span></h2><span class="muted" style="font-size:12px">${S.sel}.md</span></div><div class="row">${rebuild}</div></div><div class="mbody">${body}</div>`;
+  el.innerHTML=`<div class="mhead"><div><h2><span class="num">${isWeek(S.sel)?S.sel:S.sel.slice(5)}</span><span class="wd">${wdOf(S.sel)}</span></h2><span class="muted" style="font-size:12px">${isWeek(S.sel)?"weekly/":""}${S.sel}.md</span></div><div class="row">${rebuild}</div></div><div class="mbody">${body}</div>`;
   el.querySelectorAll(".fr textarea").forEach(autosize);
 }
 function autosize(t){t.style.height="auto";t.style.height=Math.max(40,t.scrollHeight+2)+"px"}
@@ -642,14 +651,14 @@ async function promptText(){
   return buildPrompt();
 }
 function buildPrompt(){
-  return `${S.question.trim()}\n\n아래는 ${S.sel} 훈련 리포트입니다.\n\n---\n${S.md}`;
+  return `${S.question.trim()}\n\n아래는 ${S.sel} ${isWeek(S.sel)?"주간":"훈련"} 리포트입니다.\n\n---\n${S.md}`;
 }
 function renderClaude(){
   const el=$("#claude");
   const can=!!S.sel;
   el.innerHTML=`<h2>AI에게 보내기</h2>
   <div class="muted" style="font-size:13px;line-height:1.6">${can?`<span class="badge">${dayLabel(S.sel)} 리포트 + 저장된 메모</span> 를 질문과 함께 복사한 뒤 AI 창을 엽니다. 붙여넣기만 하면 됩니다.`:"리포트를 먼저 선택하세요."}</div>
-  <div class="chips">${QUESTIONS.map((q,i)=>`<button class="chip" data-q="${i}">${esc(q)}</button>`).join("")}</div>
+  <div class="chips">${QS().map((q,i)=>`<button class="chip" data-q="${i}">${esc(q)}</button>`).join("")}</div>
   <label for="q" class="muted" style="font-size:13px">질문</label>
   <textarea id="q">${esc(S.question)}</textarea>
   <div class="row">${S.ais.map((a,i)=>`<button class="btn ${i===0?"primary":""}" data-ai="${i}" ${can?"":"disabled"}>${esc(a[0])}에 보내기</button>`).join("")}</div>
@@ -844,7 +853,7 @@ document.addEventListener("click",async ev=>{
   if(t.dataset.week){const wk=t.dataset.week;setWeek(wk,!S.openWeeks.has(wk));renderSide();return}
   if(t.dataset.ai!==undefined)return openAi(+t.dataset.ai);
   if(t.dataset.day)return selectDay(t.dataset.day);
-  if(t.dataset.q){S.question=QUESTIONS[+t.dataset.q];renderClaude();return}
+  if(t.dataset.q){S.question=QS()[+t.dataset.q];renderClaude();return}
   if(t.dataset.preset){const [a,b]=t.dataset.preset.split("|");S.g.start=a;S.g.end=b;refreshGarmin();return}
   if(t.dataset.overwrite)return overwrite(+t.dataset.overwrite);
   switch(t.dataset.act){

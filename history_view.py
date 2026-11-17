@@ -182,7 +182,7 @@ def to_text(res: dict) -> str:
           f"- HRV 평균 {_fmt(c['hrv'])}{_delta(c['hrv'], p['hrv'])}, 안정시 심박 {_fmt(c['restHr'], 'bpm')}{_delta(c['restHr'], p['restHr'], 'bpm')}"]
     if c["acwr"]:
         a = c["acwr"]
-        L.append(f"- 급성/만성 부하 {a['acute']:g}/{a['chronic']:g} (ACWR {a['ratio']:g}, {a['status']}, {a['day']} 기준)")
+        L.append(f"- 급성/만성 부하 {_fmt(a['acute'])}/{_fmt(a['chronic'])} (ACWR {_fmt(a['ratio'])}, {a['status'] or '-'}, {a['day']} 기준)")
     z = c["zonesMin"]
     L.append(f"- 심박존 시간(분): Z1 미만 {z[0]}, Z1 {z[1]}, Z2 {z[2]}, Z3 {z[3]}, Z4 {z[4]}, Z5 {z[5]}")
     if c["types"]:

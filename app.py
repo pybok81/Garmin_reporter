@@ -29,6 +29,7 @@ from urllib.parse import parse_qs, urlparse
 import corrections as corr
 import history_db
 import history_view
+import weekly_report as wk
 from garmin_report import NOTE_RE, load_names, weight_kg
 
 ROOT = Path(__file__).resolve().parent
@@ -67,8 +68,15 @@ def valid_day(value: object) -> bool:
     return True
 
 
-def report_path(day: str) -> Path:
-    return CFG["reports"] / f"{day}.md"
+def valid_key(value: object) -> bool:
+    """리포트 이름: 날짜(2026-11-16) 또는 주(2026-W47)."""
+    return valid_day(value) or wk.valid_week(value)
+
+
+def report_path(key: str) -> Path:
+    if wk.valid_week(key):
+        return CFG["reports"] / "weekly" / f"{key}.md"
+    return CFG["reports"] / f"{key}.md"
 
 
 AI_DIR_RE = re.compile(r"^[0-9A-Za-z가-힣][0-9A-Za-z가-힣 ._\-]{0,39}$")
@@ -158,10 +166,18 @@ def inbox_dir() -> Path:
     return CFG["inbox"] or ROOT / "inbox"
 
 
+INBOX_WEEK_RE = re.compile(r"^(\d{4})[-_.]?[Ww](\d{2})(?:[\s_\-.]+(.+?))?\.md$")   # 2026-W47_gpt.md / 2026W47 gemini.md
+
+
 def inbox_match(name: str) -> tuple[str, str | None] | None:
-    """파일 이름에서 (YYYY-MM-DD, AI 이름 또는 None). 날짜로 시작하지 않으면 None."""
+    """파일 이름에서 (YYYY-MM-DD 또는 YYYY-Www, AI 이름 또는 None). 날짜·주로 시작하지 않으면 None."""
     m = INBOX_NAME_RE.match(name)
-    return (f"{m.group(1)}-{m.group(2)}-{m.group(3)}", (m.group(4) or "").strip() or None) if m else None
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}", (m.group(4) or "").strip() or None
+    m = INBOX_WEEK_RE.match(name)
+    if m and wk.valid_week(f"{m.group(1)}-W{m.group(2)}"):
+        return f"{m.group(1)}-W{m.group(2)}", (m.group(3) or "").strip() or None
+    return None
 
 
 def inbox_sources() -> tuple[list[tuple[Path, str, str, Path]], list[dict]]:
@@ -191,7 +207,7 @@ def inbox_sources() -> tuple[list[tuple[Path, str, str, Path]], list[dict]]:
     fb = CFG["feedback"]
     if fb.is_dir():
         for f in sorted(fb.glob("*.md")):       # feedback/ 바로 아래에 날짜_gpt.md 로 넣은 파일
-            if not f.is_file() or valid_day(f.stem):   # 날짜.md 는 예전 형식(시작할 때 자동 정리)
+            if not f.is_file() or valid_key(f.stem):   # 날짜.md 는 예전 형식(시작할 때 자동 정리)
                 continue
             mm = inbox_match(f.name)
             if mm and mm[1]:
@@ -200,13 +216,13 @@ def inbox_sources() -> tuple[list[tuple[Path, str, str, Path]], list[dict]]:
                 skipped.append({"name": f.name, "dir": str(fb), "why": "이름이 날짜_AI이름.md 형식이 아님 (예: 2026-11-14_gpt.md)"})
         for ad in sorted(p for p in fb.iterdir() if p.is_dir() and not p.name.startswith("_")):
             for f in sorted(ad.glob("*.md")):
-                if valid_day(f.stem):      # 이미 정리된 파일(날짜.md)
+                if valid_key(f.stem):      # 이미 정리된 파일(날짜.md, 주.md)
                     continue
                 mm = inbox_match(f.name)
                 if mm:
                     found.append((f, mm[0], ad.name, ad))
                 else:
-                    skipped.append({"name": f.name, "dir": str(ad), "why": "날짜.md 형식이 아님 (예: 2026-11-14.md)"})
+                    skipped.append({"name": f.name, "dir": str(ad), "why": "날짜.md 형식이 아님 (예: 2026-11-14.md, 주간은 2026-W47.md)"})
     return found, skipped
 
 
@@ -247,6 +263,59 @@ def day_info(path: Path) -> dict:
         "hasRaw": (CFG["data"] / "raw" / day).is_dir(),
         "hasFeedback": bool(feedback_items(day)),
     }
+
+
+def week_info(path: Path) -> dict:
+    key = path.stem
+    start, end = wk.week_range(key)
+    body = {m.group(1): m.group(2) for m in NOTE_RE.finditer(path.read_text(encoding="utf-8"))}.get("week", "")
+    return {"date": key, "key": key, "week": True, "start": start.isoformat(), "end": end.isoformat(),
+            "ongoing": end >= date.today(), "notesTotal": 1, "notesFilled": 1 if note_filled(body) else 0,
+            "hasRaw": db_path().is_file(), "hasFeedback": bool(feedback_items(key))}
+
+
+def info_for(path: Path) -> dict:
+    return week_info(path) if wk.valid_week(path.stem) else day_info(path)
+
+
+def list_weeks() -> list[dict]:
+    d = CFG["reports"] / "weekly"
+    out = []
+    if d.is_dir():
+        for p in d.glob("*.md"):
+            if wk.valid_week(p.stem):
+                try:
+                    out.append(week_info(p))
+                except (OSError, UnicodeDecodeError):
+                    continue
+    return sorted(out, key=lambda w: w["key"], reverse=True)
+
+
+def write_week(key: str) -> str | None:
+    """주간 리포트를 DB에서 만들어 쓴다 (메모 보존, 내용이 같으면 다시 쓰지 않는다). 쓰면 'new'/'updated', 그대로면 'same', DB가 없으면 None."""
+    path = report_path(key)
+    with FILE_LOCK:
+        old_bytes = path.read_bytes() if path.is_file() else None
+        old = old_bytes.decode("utf-8") if old_bytes is not None else None
+        text = wk.build(db_path(), key, old, date.today())
+        if text is None:
+            return None
+        if old is not None and old.replace("\r\n", "\n") == text:
+            return "same"
+        atomic_write(path, text, bool(old_bytes) and uses_crlf(old_bytes))
+        return "updated" if old is not None else "new"
+
+
+def week_sync(days: list[str] | None = None) -> int:
+    """운동이 있는 주(days 가 있으면 그 날짜가 속한 주만)의 주간 리포트를 만들거나 갱신한다. 바뀐 개수를 돌려준다."""
+    db = history_view.connect_ro(db_path())
+    if db is None:
+        return 0
+    try:
+        keys = wk.weeks_with_activity(db, days)
+    finally:
+        db.close()
+    return sum(1 for k in keys if write_week(k) in ("new", "updated"))
 
 
 def list_days() -> list[dict]:
@@ -420,13 +489,13 @@ class ApiError(Exception):
 
 
 def api_days() -> dict:
-    return {"today": date.today().isoformat(), "days": list_days(), "reportsDir": str(CFG["reports"]),
+    return {"today": date.today().isoformat(), "days": list_days(), "weeks": list_weeks(), "reportsDir": str(CFG["reports"]),
             "hasPlan": bool(doc_names("plan")), "hasRef": bool(doc_names("reference")),
             "rpeDoc": next((n for n in doc_names("reference") if "rpe" in n.lower()), None)}
 
 
 def api_report(day: str) -> dict:
-    if not valid_day(day):
+    if not valid_key(day):
         raise ApiError(400, "날짜 형식이 올바르지 않습니다")
     path = report_path(day)
     if not path.exists():
@@ -435,7 +504,7 @@ def api_report(day: str) -> dict:
 
 
 def api_feedback_get(day: str) -> dict:
-    if not valid_day(day):
+    if not valid_key(day):
         raise ApiError(400, "날짜 형식이 올바르지 않습니다")
     return {"date": day, "items": [{"ai": ai, "text": f.read_text(encoding="utf-8")} for ai, f in feedback_items(day)]}
 
@@ -443,7 +512,7 @@ def api_feedback_get(day: str) -> dict:
 def api_feedback_save(body: dict) -> dict:
     """feedback/<AI>/<날짜>.md 한 개를 쓴다. mode=set: 통째로 저장(빈 문자열이면 파일 삭제) / append: 구분선과 함께 뒤에 추가."""
     day, ai, text, mode = body.get("date"), body.get("ai"), body.get("text"), body.get("mode", "set")
-    if not valid_day(day) or not isinstance(text, str) or mode not in ("set", "append"):
+    if not valid_key(day) or not isinstance(text, str) or mode not in ("set", "append"):
         raise ApiError(400, "요청 형식이 올바르지 않습니다")
     if isinstance(ai, str):
         ai = canon_ai(ai)
@@ -534,7 +603,7 @@ def merge_ai_folders() -> int:
                 os.replace(tmp, target)
             else:
                 for f in sorted(tmp.glob("*.md")):
-                    if valid_day(f.stem):
+                    if valid_key(f.stem):
                         api_feedback_save({"date": f.stem, "ai": canon, "text": f.read_text(encoding="utf-8-sig"), "mode": "append"})
                         f.unlink()
                 try:
@@ -761,8 +830,8 @@ def compose_ai_text(day: str, question: str, with_plan: bool, with_ref: bool, gr
             parts.append(title)
             for n in names:
                 parts += [f"### {n[:-3]}", (doc_dir(kind) / n).read_text(encoding="utf-8-sig").replace("\r\n", "\n").strip(), ""]
-    parts += [f"## {day} 훈련 리포트 (메모 포함)", rp.read_text(encoding="utf-8").replace("\r\n", "\n").strip(), ""]
-    if graph in ("jumps", "full"):
+    parts += [f"## {day} {'주간' if wk.valid_week(day) else '훈련'} 리포트 (메모 포함)", rp.read_text(encoding="utf-8").replace("\r\n", "\n").strip(), ""]
+    if graph in ("jumps", "full") and valid_day(day):
         parts.append(series_text(day, graph))
     return "\n".join(parts)
 
@@ -770,7 +839,7 @@ def compose_ai_text(day: str, question: str, with_plan: bool, with_ref: bool, gr
 def api_bundle(body: dict) -> dict:
     """AI에 보낼 내용(질문 + 선택한 계획/사전 + 리포트)을 만든다. textOnly면 텍스트만 돌려주고, 아니면 outbox에 파일로 만들고 탐색기에서 연다."""
     day, question = body.get("date"), body.get("question", "")
-    if not valid_day(day) or not isinstance(question, str) or len(question) > 20000:
+    if not valid_key(day) or not isinstance(question, str) or len(question) > 20000:
         raise ApiError(400, "요청 형식이 올바르지 않습니다")
     text = compose_ai_text(day, question, bool(body.get("plan")), bool(body.get("ref")),
                            body.get("graph") if body.get("graph") in ("jumps", "full") else "")
@@ -795,7 +864,7 @@ def api_inbox_apply(body: dict) -> dict:
         label = canon_ai(ai)
         r = {"name": f.name, "date": day, "ai": label, "dir": str(d)}
         try:
-            if not valid_day(day):
+            if not valid_key(day):
                 raise ApiError(400, "날짜가 올바르지 않습니다")
             if not report_path(day).is_file():
                 raise ApiError(404, f"{day} 리포트가 없어 건너뜀 (먼저 가져오기)")
@@ -824,7 +893,7 @@ def api_inbox_apply(body: dict) -> dict:
 
 def api_save_note(body: dict) -> dict:
     day, note_id, text = body.get("date"), body.get("id"), body.get("text")
-    if not valid_day(day) or not isinstance(note_id, str) or not ID_RE.match(note_id) or not isinstance(text, str):
+    if not valid_key(day) or not isinstance(note_id, str) or not ID_RE.match(note_id) or not isinstance(text, str):
         raise ApiError(400, "요청 형식이 올바르지 않습니다")
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     if MARKER_RE.search(text):
@@ -844,7 +913,7 @@ def api_save_note(body: dict) -> dict:
             raise ApiError(404, "해당 메모 칸을 찾지 못했습니다")
         updated = pattern.sub(lambda m: f"<!-- notes:{note_id} -->\n{text}<!-- /notes -->", original, count=1)
         atomic_write(path, updated, crlf)
-    return {"ok": True, "info": day_info(path)}
+    return {"ok": True, "info": info_for(path)}
 
 
 def api_upload(body: dict) -> dict:
@@ -881,6 +950,10 @@ def api_upload(body: dict) -> dict:
 
 def api_rebuild(body: dict) -> dict:
     day = body.get("date")
+    if wk.valid_week(day):
+        if write_week(day) is None:
+            raise ApiError(404, "이력 DB가 없어 주간 리포트를 만들 수 없습니다. 계정 설정에서 '원본을 DB에 반영'을 먼저 실행하세요")
+        return {"ok": True, "output": "", "info": info_for(report_path(day))}
     if not valid_day(day):
         raise ApiError(400, "날짜 형식이 올바르지 않습니다")
     if not (CFG["data"] / "raw" / day).is_dir():
@@ -1041,7 +1114,9 @@ def db_sync(days: list[str] | None = None, create: bool = False) -> dict | None:
         return None
     try:
         with FILE_LOCK:
-            return history_db.sync_all(db_path(), CFG["data"] / "raw", days, CFG["root"])
+            res = history_db.sync_all(db_path(), CFG["data"] / "raw", days, CFG["root"])
+            res["weeklyChanged"] = week_sync(days)   # 바뀐 주의 주간 리포트도 같이 갱신
+            return res
     except Exception as err:  # noqa: BLE001 - DB는 부가 기능이라 가져오기 자체를 막지 않는다
         sys.stderr.write(f"이력 DB 반영 실패: {type(err).__name__}: {err}\n")
         return {"error": f"{type(err).__name__}: {err}"}

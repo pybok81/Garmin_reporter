@@ -58,6 +58,9 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .card{background:none;border:0}
 .side{flex:1 1 240px;max-width:280px;min-width:220px;display:flex;flex-direction:column;gap:2px}
 .side h2,.claude h2{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--muted)}
+.sidetabs{display:flex;gap:4px;margin:2px 0 8px;border-bottom:1px solid var(--line)}
+.sidetabs button{flex:1;min-height:40px;border:0;border-bottom:2px solid transparent;border-radius:0;background:none;font:600 14px "Segoe UI","Malgun Gothic",sans-serif;color:var(--muted)}
+.sidetabs button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
 .weekh{width:100%;min-height:44px;margin-top:10px;padding:6px 0;border:0;border-top:1px solid var(--line);border-radius:0;background:none;display:flex;align-items:center;gap:8px;text-align:left;font:600 14px var(--num)}
 .weekh:hover{color:var(--accent)}
 .weekh .wk-s{margin-left:auto;font:400 12px "Segoe UI","Malgun Gothic",sans-serif}
@@ -241,7 +244,7 @@ const QUESTIONS=["이 날 회복 상태와 운동 강도를 평가해 줘","내�
 const DEFAULT_AIS=[["Claude","https://claude.ai/new"],["ChatGPT","https://chatgpt.com/"],["Gemini","https://gemini.google.com/app"]];
 const WD="월화수목금토일";
 const S={fb:[],fbEdit:false,days:[],weeks:[],today:"",sel:null,md:"",tab:"split",dirty:new Set(),question:QUESTIONS[0],g:null,up:[],uploadFiles:new Map(),settings:null,
-  claudeW:Math.max(320,+store("claudeW")||460),openWeeks:new Set([].concat(loadJson("weeks",[]))),revealed:null,ais:loadAis(),popup:store("popup")!=="0",ref:store("ref")==="1",hasRef:false,docOpen:store("docOpen")==="1",docs:{kinds:[],sel:null,text:"",edit:false,isNew:false,upKind:"plan"},asFile:store("asfile")!=="0",plan:store("plan")==="1",hasPlan:false,graph:store("graph")||"none",ser:[],h:{mode:"week",from:"",to:"",data:null,err:""}};
+  claudeW:Math.max(320,+store("claudeW")||460),side:store("side")==="week"?"week":"day",revealed:null,ais:loadAis(),popup:store("popup")!=="0",ref:store("ref")==="1",hasRef:false,docOpen:store("docOpen")==="1",docs:{kinds:[],sel:null,text:"",edit:false,isNew:false,upKind:"plan"},asFile:store("asfile")!=="0",plan:store("plan")==="1",hasPlan:false,graph:store("graph")||"none",ser:[],h:{mode:"week",from:"",to:"",data:null,err:""}};
 
 /* ---------- utils ---------- */
 const $=s=>document.querySelector(s);
@@ -514,8 +517,6 @@ function weekStart(d){const dt=parseDay(d);dt.setDate(dt.getDate()-((dt.getDay()
 function renderSide(){
   let html=`<h2>파일</h2>`;
   if(!S.days.length&&!S.weeks.length)html+=`<div class="muted" style="font-size:13px;line-height:1.6;padding:8px 0">아직 리포트가 없습니다.<br>가민에서 가져오기나 .md 파일 올리기로 추가하세요.</div>`;
-  if(S.days.length&&store("weeks")===null&&!S.openWeeks.size)S.openWeeks.add(weekStart(S.days[0].date));
-  if(S.sel&&S.sel!==S.revealed){S.revealed=S.sel;S.openWeeks.add(weekStart(S.sel))}   // 선택이 바뀌면 그 주를 펼친다
   const dayBtn=d=>{
     let badge="";
     if(d.snapshot)badge=`<span class="badge warn">오늘</span>`;
@@ -524,19 +525,13 @@ function renderSide(){
     return `<button class="day${d.workouts?"":" rest"}" data-day="${d.date}" aria-current="${d.date===S.sel}"><span><span class="t"><span class="num">${d.date.slice(5)}</span><span class="wd">${wdOf(d.date)}</span></span><span class="s">${d.workouts?esc(d.types.join(" · ")):"운동 없음"}</span></span><span class="row" style="gap:6px">${d.hasFeedback?`<span class="badge" title="AI 피드백 있음">피드백</span>`:""}${badge}</span></button>`;
   };
   const weekBtn=w=>`<button class="day wkr" data-day="${w.key}" aria-current="${w.key===S.sel}"><span><span class="t"><span class="num">${w.key.slice(5)}</span><span class="wd">주간 리포트</span></span><span class="s">${w.start.slice(5)} ~ ${w.end.slice(5)}</span></span><span class="row" style="gap:6px">${w.hasFeedback?`<span class="badge" title="AI 피드백 있음">피드백</span>`:""}${w.ongoing?`<span class="badge warn">진행 중</span>`:`<span class="badge ${w.notesFilled?"done":""}">메모 ${w.notesFilled}/${w.notesTotal}</span>`}</span></button>`;
-  const weeks=[],map=new Map(),wmap=new Map();
-  for(const d of S.days){const wk=weekStart(d.date);if(!map.has(wk)){map.set(wk,[]);weeks.push(wk)}map.get(wk).push(d)}
-  for(const w of S.weeks){wmap.set(w.start,w);if(!map.has(w.start)){map.set(w.start,[]);weeks.push(w.start)}}
-  weeks.sort().reverse();
-  if(S.sel&&isWeek(S.sel)){const w=wmap.size&&S.weeks.find(x=>x.key===S.sel);if(w&&S.sel!==S.revealed){S.revealed=S.sel;S.openWeeks.add(w.start)}}
-  for(const wk of weeks){
-    const list=map.get(wk),w=wmap.get(wk),open=S.openWeeks.has(wk),todo=list.reduce((a,d)=>a+(d.notesTotal-d.notesFilled),0);
-    html+=`<button class="weekh" data-week="${wk}" aria-expanded="${open}"><span class="chev" aria-hidden="true"></span><span>${wk.slice(5)} ~ ${addDays(wk,6).slice(5)} 주</span><span class="muted wk-s">${list.length?list.length+"일":"주간 리포트만"}${todo?` · 메모 ${todo}개 남음`:""}</span></button>`;
-    if(open)html+=`<div class="weekb">${w?weekBtn(w):""}${list.map(dayBtn).join("")}</div>`;
-  }
+  if(S.sel&&S.sel!==S.revealed){S.revealed=S.sel;S.side=isWeek(S.sel)?"week":"day"}   // 선택이 바뀌면 그 종류의 탭으로
+  const todoD=S.days.reduce((a,d)=>a+(d.notesTotal-d.notesFilled),0);
+  const sideTabs=`<div class="sidetabs" role="tablist"><button role="tab" data-side="day" aria-selected="${S.side==="day"}">일간 <span class="muted">${S.days.length}</span></button><button role="tab" data-side="week" aria-selected="${S.side==="week"}">주간 <span class="muted">${S.weeks.length}</span></button></div>`;
+  html=`<h2>파일</h2>`+sideTabs+(S.side==="week"?(S.weeks.length?S.weeks.map(weekBtn).join(""):`<div class="muted" style="font-size:13px;line-height:1.6;padding:8px 0">주간 리포트가 없습니다. 계정 설정에서 "주간 리포트 모두 다시 만들기"를 누르세요.</div>`)
+    :S.days.map(dayBtn).join(""));
   $("#side").innerHTML=html;
 }
-function setWeek(wk,open){open?S.openWeeks.add(wk):S.openWeeks.delete(wk);store("weeks",JSON.stringify([...S.openWeeks]))}
 function curInfo(){return S.days.find(d=>d.date===S.sel)||S.weeks.find(w=>w.key===S.sel)}
 const FB_STD=["ChatGPT","gemini","claude"];
 function fbNames(items){
@@ -854,11 +849,11 @@ async function accountModal(){
 
 /* ---------- events ---------- */
 document.addEventListener("click",async ev=>{
-  const t=ev.target.closest("[data-act],[data-tab],[data-day],[data-q],[data-preset],[data-overwrite],[data-overlay],[data-week],[data-ai]");
+  const t=ev.target.closest("[data-act],[data-tab],[data-day],[data-q],[data-preset],[data-overwrite],[data-overlay],[data-side],[data-ai]");
   if(!t)return;
   if(t.dataset.overlay!==undefined){if(ev.target===t&&!(S.g&&S.g.running))closeModal();return}
   if(t.dataset.tab){if(S.tab!=="hist")store("tab0",S.tab);S.tab=t.dataset.tab;store("tab",S.tab);renderTabs();layout();if(S.tab==="hist")showHist();return}   // 메인을 다시 그리지 않아 입력 중인 메모가 유지된다
-  if(t.dataset.week){const wk=t.dataset.week;setWeek(wk,!S.openWeeks.has(wk));renderSide();return}
+  if(t.dataset.side){S.side=t.dataset.side;store("side",S.side);renderSide();return}
   if(t.dataset.ai!==undefined)return openAi(+t.dataset.ai);
   if(t.dataset.day)return selectDay(t.dataset.day);
   if(t.dataset.q){S.question=QS()[+t.dataset.q];renderClaude();return}

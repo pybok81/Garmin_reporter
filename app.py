@@ -965,9 +965,22 @@ def api_save_note(body: dict) -> dict:
         pattern = re.compile(rf"<!-- notes:{re.escape(note_id)} -->\n?.*?<!-- /notes -->", re.DOTALL)
         if not pattern.search(original):
             raise ApiError(404, "해당 메모 칸을 찾지 못했습니다")
+        old = pattern.search(original).group(0)
         updated = pattern.sub(lambda m: f"<!-- notes:{note_id} -->\n{text}<!-- /notes -->", original, count=1)
         atomic_write(path, updated, crlf)
-    return {"ok": True, "info": info_for(path)}
+        # 메모의 `보정:` 줄이 바뀌었으면 그날 리포트를 다시 만든다 (R22, 메모는 유지)
+        rebuilt = False
+        if (valid_day(day) and corr.memo_lines(old) != corr.memo_lines(text)
+                and (CFG["data"] / "raw" / day).is_dir()):
+            code, out = run_script([str(ROOT / "garmin_report.py"), "--date", day, "--days", "1",
+                                    "--data", str(CFG["data"]), "--reports", str(CFG["reports"]),
+                                    "--corrections", str(CFG["root"])], timeout=120)
+            rebuilt = code == 0
+            if rebuilt and db_path().is_file():
+                k = wk.week_key(date.fromisoformat(day))
+                if report_path(k).is_file():
+                    write_week(k)
+    return {"ok": True, "info": info_for(path), "rebuilt": rebuilt}
 
 
 def api_upload(body: dict) -> dict:
@@ -1205,7 +1218,8 @@ def api_history(q: dict) -> dict:
     res = history_view.build(db_path(), mode, a, b)
     if res.get("exists") and res["cur"]["sets"] and (date.fromisoformat(b) - date.fromisoformat(a)).days <= 366:
         try:   # 웨이트 구분별 세트 (원본·수정에서 계산). 실패해도 요약은 그대로 보여 준다
-            res["weight"] = wk.weight_summary(CFG["data"], CFG["root"], date.fromisoformat(a), date.fromisoformat(b), ROOT / "names.toml")
+            res["weight"] = wk.weight_summary(CFG["data"], CFG["root"], date.fromisoformat(a), date.fromisoformat(b), ROOT / "names.toml",
+                                              CFG["reports"])
         except Exception as err:  # noqa: BLE001
             sys.stderr.write(f"웨이트 구분별 세트 계산 실패: {type(err).__name__}: {err}\n")
     return res

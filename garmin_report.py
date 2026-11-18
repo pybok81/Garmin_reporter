@@ -120,6 +120,7 @@ def clock_from_ms(ms: Any) -> str:
 
 BODYWEIGHT: set[str] = {"PULL_UP", "CHIN_UP", "PUSH_UP", "PLANK", "SIT_UP", "CRUNCH"}
 PARTS: dict[str, str] = {}  # 운동 코드 -> 부위 태그 (names.toml [parts])
+ALIASES: dict[str, str] = {}  # 메모 보정에 쓰는 이름 표기 차이 -> 코드 (names.toml [aliases])
 
 
 def load_names(path: Path) -> tuple[dict[str, str], str]:
@@ -131,6 +132,8 @@ def load_names(path: Path) -> tuple[dict[str, str], str]:
         "bodyweight", ["PULL_UP", "CHIN_UP", "PUSH_UP", "PLANK", "SIT_UP", "CRUNCH"]))
     PARTS.clear()
     PARTS.update({str(k).upper(): str(v) for k, v in data.get("parts", {}).items()})
+    ALIASES.clear()
+    ALIASES.update({str(k): str(v).upper() for k, v in data.get("aliases", {}).items()})
     return data.get("exercises", {}), str(data.get("settings", {}).get("weight_unit", "auto")).lower()
 
 
@@ -246,7 +249,7 @@ def weight_kg(raw_w: Any, unit: str, grams_likely: bool) -> float | None:
 
 
 def classify_sets(sets_json: Any, names: dict[str, str], unit_cfg: str,
-                  fixes: list[dict] | None = None) -> dict | None:
+                  fixes: list[dict] | None = None, memo: str | None = None) -> dict | None:
     """운동 세트를 보정(직접 수정)까지 적용해 세트 하나씩 분류한다. 일일 리포트와 주간 집계가 같이 쓴다.
 
     세트 기록이 없으면 None. rows 는 쉬는 세트를 뺀 운동 세트 목록이고, 삭제된 세트는 들어 있지 않다.
@@ -258,7 +261,11 @@ def classify_sets(sets_json: Any, names: dict[str, str], unit_cfg: str,
         return None
 
     before = sets
-    sets, fix_warn, fix_done = corr.apply_sets(sets, fixes or [])
+    fixes = list(fixes or [])
+    mrows, memo_warn = corr.memo_rows(sets, memo, names, ALIASES, {r["i"] for r in fixes})   # 메모 `보정:` 줄 (R22)
+    fixes += mrows
+    sets, fix_warn, fix_done = corr.apply_sets(sets, fixes)
+    fix_warn = memo_warn + fix_warn
     weights = [s.get("weight") for s in sets if isinstance(s.get("weight"), (int, float)) and s["weight"] > 0]
     grams_likely = bool(weights) and max(weights) >= 1000  # 1000 이상이면 g으로 추정
     rows: list[dict] = []
@@ -283,16 +290,17 @@ def classify_sets(sets_json: Any, names: dict[str, str], unit_cfg: str,
             "reps": s.get("repetitionCount") or 0, "kg": w, "bw": any(c in BODYWEIGHT for c in codes),
             "dur": s.get("duration") or 0, "corrected": bool(s.get("_corrected")),
         })
-    return {"rows": rows, "before": before, "fix_warn": fix_warn, "fix_done": fix_done,
+    return {"rows": rows, "before": before, "fix_warn": fix_warn, "fix_done": fix_done, "fixes": fixes,
             "grams_likely": grams_likely, "rest_total": rest_total}
 
 
 def strength_section(sets_json: Any, names: dict[str, str], unit_cfg: str,
-                     fixes: list[dict] | None = None) -> list[str]:
-    c = classify_sets(sets_json, names, unit_cfg, fixes)
+                     fixes: list[dict] | None = None, memo: str | None = None) -> list[str]:
+    c = classify_sets(sets_json, names, unit_cfg, fixes, memo)
     if c is None:
         return ["", "_세트 기록 없음 (Garmin 운동 세트가 비어 있음)_"]
     before, fix_warn, fix_done, grams_likely, rest_total = c["before"], c["fix_warn"], c["fix_done"], c["grams_likely"], c["rest_total"]
+    fixes = c["fixes"]
     fix_lines = corr.describe(before, fixes, names, fix_done) if fixes else []
     unit_note = {"g": "g 단위로 설정됨", "kg": "kg 단위로 설정됨"}.get(
         unit_cfg, "무게 단위 자동 판정: " + ("g→kg 변환" if grams_likely else "kg 그대로") + " (맞지 않으면 names.toml의 weight_unit 지정)")
@@ -391,7 +399,8 @@ def activity_block(idx: int, entry: dict, adir: Path, names: dict[str, str], uni
         out += lap_table(load_json(adir / "splits.json"), type_key in RUN_TYPES)
     if type_key == "strength_training" or ok(load_json(adir / "exercise_sets.json")) and \
             (ok(load_json(adir / "exercise_sets.json")) or {}).get("exerciseSets"):
-        out += strength_section(load_json(adir / "exercise_sets.json"), names, unit_cfg, fixes)
+        out += strength_section(load_json(adir / "exercise_sets.json"), names, unit_cfg, fixes,
+                                saved_notes.get(act_id))
 
     body = saved_notes.get(act_id, ACTIVITY_NOTE_TEMPLATE)
     out += ["", "**메모** (마커 안쪽에 쓰세요)", f"<!-- notes:{act_id} -->\n{body}<!-- /notes -->", ""]

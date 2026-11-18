@@ -60,6 +60,13 @@ JUMP_ROPE = "줄넘기"
 BIRD_DOG = "버드독"
 BIRD_DOG_ALTERNATE = "버드독 (좌우 교대)"
 GLUTE_BRIDGE = "글루트 브리지"
+# R22 이름 보정 (11-18 원본 확인). 전역 매핑은 이름이 항상 같은 동작일 때만.
+PLIE_SQUAT = "와이드 스쿼트"                 # 전역: 두 번 모두 버티기로 한 와이드 스쿼트
+GLUTES_STRETCH = "글루트 브리지"             # 전역: 글루트 스트레칭은 따로 기록하지 않음 (기록하게 되면 이 줄을 지우고 메모로)
+SINGLE_LEG_DEADLIFT_WITH_BARBELL = "싱글레그 바벨 데드리프트"   # 맨몸으로 한 날은 세트별 수정
+DUMBBELL_BOX_LUNGE = "덤벨 박스 런지"        # 덤벨 없이 한 날은 세트별 수정·메모
+BODY_WEIGHT_WALL_SQUAT = "맨몸 월 스쿼트"    # 벽 유무가 날마다 다름 → 메모
+SMITH_SQUAT = "스미스 스쿼트"                # 앱 전용 코드 (회사 헬스장 스쿼트, 메모 `보정: 바벨 백스쿼트=스미스 스쿼트`)
 HIP_THRUST = "힙 쓰러스트"
 LEG_RAISE = "레그 레이즈"
 RUSSIAN_TWIST = "러시안 트위스트"
@@ -134,6 +141,12 @@ JUMP_ROPE = "전신"
 BIRD_DOG = "코어"
 BIRD_DOG_ALTERNATE = "코어"
 GLUTE_BRIDGE = "하체"
+PLIE_SQUAT = "하체"
+GLUTES_STRETCH = "하체"
+SINGLE_LEG_DEADLIFT_WITH_BARBELL = "하체"
+DUMBBELL_BOX_LUNGE = "하체"
+BODY_WEIGHT_WALL_SQUAT = "하체"
+SMITH_SQUAT = "하체"
 CALF_RAISE = "하체"
 CLAM_SHELLS = "하체"
 HIP_THRUST = "하체"
@@ -166,6 +179,12 @@ LAT_PULLDOWN = "등"
 # 주간 리포트의 '웨이트 구분별 세트' 구분. 값은 푸시 / 풀 / 하체 / 코어.
 # 키가 운동 코드(대문자+밑줄)면 그 운동만, 부위 이름(가슴·등·하체·코어)이면 [parts]가 그 부위인 운동 전체에 적용됩니다. 코드가 부위보다 우선합니다.
 # 여기에 없는 운동은 주간 리포트의 '미분류'에 이름과 함께 나오니, 보이면 한 줄씩 추가하세요.
+
+# 메모 보정(`보정: 3=글루트 브릿지`)에 쓰는 이름의 다른 표기 → 운동 코드. 한글 이름과 코드는 따로 적지 않아도 찾는다(공백 무시).
+[aliases]
+"글루트 브릿지" = "GLUTE_BRIDGE"
+"스미스" = "SMITH_SQUAT"
+"와이드 스쿼트 버티기" = "PLIE_SQUAT"
 
 [groups]
 "가슴" = "푸시"

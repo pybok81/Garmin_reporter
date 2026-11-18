@@ -82,7 +82,8 @@ def goal_text(t: dict) -> str:
     return f"{n}/{goal} ({state})"
 
 
-def weight_summary(data_root: Path, corr_root: Path, start: date, end: date, names_path: Path) -> dict:
+def weight_summary(data_root: Path, corr_root: Path, start: date, end: date, names_path: Path,
+                   reports_root: Path | None = None) -> dict:
     """주(또는 기간)의 웨이트 세트를 푸시/풀/하체/코어로 센다. 가민 원본(data/raw)과 직접 수정(corrections)에서 계산한다.
 
     일일 리포트와 같은 분류 함수(garmin_report.classify_sets)를 쓰므로 수정한 세트는 수정값으로 센다.
@@ -117,9 +118,12 @@ def weight_summary(data_root: Path, corr_root: Path, start: date, end: date, nam
             continue
         n_days += 1
         fixes = corr.load(corr_root, day) if corr_root else {}
+        rroot = Path(reports_root) if reports_root else (Path(corr_root) / "reports" if corr_root else None)
+        memos = gr.read_saved_notes(rroot / f"{day}.md") if rroot else {}     # 메모 `보정:` 줄 (R22)
         for adir in sorted(raw.glob("activity_*")):
+            aid = adir.name[len("activity_"):]
             c = gr.classify_sets(gr.load_json(adir / "exercise_sets.json"), names, unit_cfg,
-                                 corr.for_activity(fixes, adir.name[len("activity_"):]))
+                                 corr.for_activity(fixes, aid), memos.get(aid))
             for r in (c["rows"] if c else []):
                 n_sets += 1
                 codes = [r["name"], r["category"]]

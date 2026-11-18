@@ -991,9 +991,10 @@ document.addEventListener("click",async ev=>{
       const text=lines.join("\n")+"\n";
       t.disabled=true;st.className="st";st.textContent="저장 중…";
       try{
-        await api("/api/notes",{date:S.sel,id,text});
+        const r=await api("/api/notes",{date:S.sel,id,text});
         S.md=replaceNote(S.md,id,text);S.dirty.delete(id);
         st.className="st ok";st.textContent="저장했습니다";
+        if(r.rebuilt){await loadReport();render();toast("메모의 보정을 반영해 리포트를 다시 만들었습니다")}
         loadDays().then(renderSide);
       }catch(e){st.className="st err";st.textContent=e.error;t.disabled=false}
       return;

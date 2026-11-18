@@ -30,6 +30,7 @@ import corrections as corr
 import history_db
 import history_view
 import weekly_report as wk
+import export_csv
 from garmin_report import NOTE_RE, load_names, weight_kg
 
 ROOT = Path(__file__).resolve().parent
@@ -319,9 +320,18 @@ def week_sync(days: list[str] | None = None) -> int:
     return sum(1 for k in keys if write_week(k) in ("new", "updated"))
 
 
+def csv_export() -> int:
+    """보관 폴더의 export/ 에 days·activities·weeks·months CSV를 쓴다 (바뀐 파일만). 쓴 개수."""
+    files = export_csv.build(db_path(), CFG["data"], CFG["root"], ROOT / "names.toml", date.today())
+    return export_csv.write_all(CFG["root"] / "export", files) if files else 0
+
+
 def api_weeks_rebuild(body: dict) -> dict:
     """모든 주간 리포트를 DB·가민 원본에서 다시 만든다 (메모는 유지, 내용이 같은 주는 그대로)."""
-    return {"changed": week_sync(None), "weeks": len(list_weeks())}
+    with FILE_LOCK:
+        changed = week_sync(None)
+        csv_export()                     # 분류를 바꿨으면 weeks/months CSV도 바뀐다
+    return {"changed": changed, "weeks": len(list_weeks())}
 
 
 def list_days() -> list[dict]:
@@ -1122,6 +1132,7 @@ def db_sync(days: list[str] | None = None, create: bool = False) -> dict | None:
         with FILE_LOCK:
             res = history_db.sync_all(db_path(), CFG["data"] / "raw", days, CFG["root"])
             res["weeklyChanged"] = week_sync(days)   # 바뀐 주의 주간 리포트도 같이 갱신
+            res["csvChanged"] = csv_export()          # 폰에서 볼 CSV (보관 폴더 export/)
             return res
     except Exception as err:  # noqa: BLE001 - DB는 부가 기능이라 가져오기 자체를 막지 않는다
         sys.stderr.write(f"이력 DB 반영 실패: {type(err).__name__}: {err}\n")

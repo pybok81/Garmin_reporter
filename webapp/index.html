@@ -995,7 +995,7 @@ document.addEventListener("click",async ev=>{
     }
     case"db-sync":{
       t.disabled=true;
-      try{const r=await api("/api/db/sync",{});toast(`DB에 반영했습니다 (${r.result.days||0}일, 활동 ${r.result.activities||0}건)`)}catch(e){toast(e.error)}
+      try{const r=await api("/api/db/sync",{});toast(`DB에 반영했습니다 (${r.result.days||0}일, 활동 ${r.result.activities||0}건${r.result.csvChanged?`, CSV ${r.result.csvChanged}개 갱신`:""})`)}catch(e){toast(e.error)}
       t.disabled=false;return;
     }
     case"weeks-rebuild":{

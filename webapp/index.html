@@ -189,6 +189,9 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .hist{padding:16px 20px 28px}
 .hbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
 .hbar input[type=date]{min-height:36px;padding:0 8px;border:1px solid var(--line);border-radius:4px;background:var(--sheet)}
+.hbar .seg{display:inline-flex;gap:4px;margin-right:6px}
+.hbar .hper{min-width:220px;text-align:center;font-size:15px}
+.hbar .hper .muted{font-size:13px;margin-left:4px;font-family:var(--num)}
 .hbar .on{background:var(--accent-bg);color:var(--accent-fg);border-color:var(--accent)}
 .hstats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:6px 0 14px}
 .hst{border:1px solid var(--line2);border-radius:6px;padding:10px 12px;background:var(--field)}
@@ -244,7 +247,7 @@ const QUESTIONS=["이 날 회복 상태와 운동 강도를 평가해 줘","내�
 const DEFAULT_AIS=[["Claude","https://claude.ai/new"],["ChatGPT","https://chatgpt.com/"],["Gemini","https://gemini.google.com/app"]];
 const WD="월화수목금토일";
 const S={fb:[],fbEdit:false,days:[],weeks:[],today:"",sel:null,md:"",tab:"split",dirty:new Set(),question:QUESTIONS[0],g:null,up:[],uploadFiles:new Map(),settings:null,
-  claudeW:Math.max(320,+store("claudeW")||460),side:store("side")==="week"?"week":"day",revealed:null,ais:loadAis(),popup:store("popup")!=="0",ref:store("ref")==="1",hasRef:false,docOpen:store("docOpen")==="1",docs:{kinds:[],sel:null,text:"",edit:false,isNew:false,upKind:"plan"},asFile:store("asfile")!=="0",plan:store("plan")==="1",hasPlan:false,graph:store("graph")||"none",ser:[],h:{mode:"week",from:"",to:"",data:null,err:""}};
+  claudeW:Math.max(320,+store("claudeW")||460),side:store("side")==="week"?"week":"day",revealed:null,ais:loadAis(),popup:store("popup")!=="0",ref:store("ref")==="1",hasRef:false,docOpen:store("docOpen")==="1",docs:{kinds:[],sel:null,text:"",edit:false,isNew:false,upKind:"plan"},asFile:store("asfile")!=="0",plan:store("plan")==="1",hasPlan:false,graph:store("graph")||"none",ser:[],h:{mode:["week","month","year"].includes(store("hmode"))?store("hmode"):"week",off:0,from:"",to:"",data:null,err:""}};
 
 /* ---------- utils ---------- */
 const $=s=>document.querySelector(s);
@@ -460,19 +463,21 @@ async function docUpload(kind,files){
 }
 
 /* ---------- 기록(기간별 요약) ---------- */
-function histRange(kind,off=0){
-  const t=S.today||fmtLocal(new Date());
-  if(kind==="month"){const d=parseDay(t);d.setDate(1);d.setMonth(d.getMonth()+off);const e=new Date(d.getFullYear(),d.getMonth()+1,0);return [fmtLocal(d),fmtLocal(e)]}
-  if(kind==="week"){const a=addDays(weekStart(t),7*off);return [a,addDays(a,6)]}
-  return [addDays(t,-kind+1),t];   // 숫자: 최근 N일
+// 기록 탭 기간: 주간(월~일) / 월간 / 연간. 오늘이 든 기간이 기본, ◀ ▶ 로 그 단위만큼 이동.
+function histRange(mode,off=0){
+  const t=parseDay(S.today||fmtLocal(new Date()));
+  if(mode==="month"){const d=new Date(t.getFullYear(),t.getMonth()+off,1);return [fmtLocal(d),fmtLocal(new Date(d.getFullYear(),d.getMonth()+1,0))]}
+  if(mode==="year"){const y=t.getFullYear()+off;return [`${y}-01-01`,`${y}-12-31`]}
+  const a=addDays(weekStart(fmtLocal(t)),7*off);return [a,addDays(a,6)];
 }
-function histShift(dir){
-  const H=S.h;
-  if(H.mode==="month"){const d=parseDay(H.from);d.setMonth(d.getMonth()+dir);const e=new Date(d.getFullYear(),d.getMonth()+1,0);H.from=fmtLocal(d);H.to=fmtLocal(e)}
-  else{const n=Math.round((parseDay(H.to)-parseDay(H.from))/864e5)+1;H.from=addDays(H.from,dir*n);H.to=addDays(H.to,dir*n)}
-  loadHist();
+function histShift(dir){S.h.off=dir?S.h.off+dir:0;[S.h.from,S.h.to]=histRange(S.h.mode,S.h.off);loadHist()}
+function histLabel(){
+  const H=S.h,a=parseDay(H.from);
+  if(H.mode==="year")return `${a.getFullYear()}년`;
+  if(H.mode==="month")return `${a.getFullYear()}년 ${a.getMonth()+1}월`;
+  const th=parseDay(addDays(H.from,3));return `${th.getFullYear()}년 ${th.getMonth()+1}월 ${Math.floor((th.getDate()-1)/7)+1}주`;
 }
-async function showHist(){if(!S.h.from){[S.h.from,S.h.to]=histRange("week")}if(!S.h.data&&!S.h.err)await loadHist();else renderHist()}
+async function showHist(){if(!S.h.from){[S.h.from,S.h.to]=histRange(S.h.mode,S.h.off)}if(!S.h.data&&!S.h.err)await loadHist();else renderHist()}
 async function loadHist(){
   const H=S.h;H.err="";
   try{H.data=await api(`/api/history?mode=${H.mode}&from=${H.from}&to=${H.to}`)}catch(e){H.data=null;H.err=e.error||"불러오지 못했습니다"}
@@ -482,11 +487,12 @@ const hv=(v,u="")=>v===null||v===undefined?"-":v+u;
 function hd(c,p,u="",dg=1){if(c===null||c===undefined||p===null||p===undefined)return "";const d=+(c-p).toFixed(dg);return d?`이전 ${d>0?"+":""}${d}${u}`:"이전과 같음"}
 function renderHist(){
   const el=$("#hist");if(!el)return;const H=S.h,D=H.data;
-  const pre=[["이번 주","week",0],["지난주","week",-1],["이번 달","month",0],["지난달","month",-1],["최근 4주","28"],["최근 90일","90"]];
-  const cur=(a,b)=>H.from===a&&H.to===b;
-  const bar=`<div class="hbar">${pre.map(([l,k,o])=>{const [a,b]=histRange(k,o);return `<button class="btn small${cur(a,b)?" on":""}" data-act="h-pre" data-k="${k}" data-o="${o||0}">${l}</button>`}).join("")}
-    <button class="btn small" data-act="h-prev" aria-label="이전 기간">◀</button><button class="btn small" data-act="h-next" aria-label="다음 기간">▶</button>
-    <input type="date" id="h-from" value="${H.from}" aria-label="시작일"> ~ <input type="date" id="h-to" value="${H.to}" aria-label="끝일"><button class="btn small" data-act="h-go">보기</button></div>`;
+  const unit={week:"주",month:"달",year:"해"}[H.mode];
+  const bar=`<div class="hbar"><span class="seg" role="group" aria-label="기간 단위">${[["week","주간"],["month","월간"],["year","연간"]].map(([k,l])=>`<button class="btn small${H.mode===k?" on":""}" data-act="h-pre" data-k="${k}" aria-pressed="${H.mode===k}">${l}</button>`).join("")}</span>
+    <button class="btn small" data-act="h-prev" aria-label="이전 ${unit}">◀</button>
+    <span class="hper"><strong>${histLabel()}</strong> <span class="muted">${H.from} ~ ${H.to}</span></span>
+    <button class="btn small" data-act="h-next" aria-label="다음 ${unit}" ${H.off>=0?"disabled":""}>▶</button>
+    ${H.off?`<button class="btn small" data-act="h-now">${{week:"이번 주로",month:"이번 달로",year:"올해로"}[H.mode]}</button>`:""}</div>`;
   if(H.err||!D||!D.exists){
     el.innerHTML=`<div class="hist">${bar}<div class="note">${esc(H.err||"이력 DB가 아직 없습니다. 계정 설정의 '원본을 DB에 반영'을 한 번 실행하면 만들어집니다.")}</div></div>`;return}
   const c=D.cur,p=D.prev,z=c.zonesMin,zt=z.reduce((a,x)=>a+x,0);
@@ -751,7 +757,7 @@ function garminModal(){
 }
 function openGarmin(){
   const t=S.today||fmtLocal(new Date());
-  S.g={start:addDays(t,-2),end:t,redo:false,running:false};
+  S.g={start:t,end:t,redo:false,running:false};
   openModal(garminModal());
 }
 function refreshGarmin(){const m=$("#modal-root .modal");if(m&&S.g)m.innerHTML=garminModal()}
@@ -886,10 +892,10 @@ document.addEventListener("click",async ev=>{
     case"theme":{const n={auto:"light",light:"dark",dark:"auto"}[themeMode()];setTheme(n);renderTabs();if(S.tab==="hist")renderHist();return}
     case"doc-toggle":S.docOpen=!S.docOpen;store("docOpen",S.docOpen?"1":"0");renderTabs();layout();if(S.docOpen)showDocs();return;
     case"doc-list":if(S.docs.edit&&!confirm("편집 중인 내용이 사라집니다. 목록으로 갈까요?"))return;S.docs.sel=null;S.docs.edit=false;S.docs.isNew=false;renderDocs();return;
-    case"h-pre":{const k=t.dataset.k;S.h.mode=k==="week"||k==="month"?k:"range";[S.h.from,S.h.to]=histRange(k==="week"||k==="month"?k:+k,+t.dataset.o);return loadHist()}
+    case"h-pre":{S.h.mode=t.dataset.k;store("hmode",S.h.mode);return histShift(0)}
+    case"h-now":return histShift(0);
     case"h-prev":return histShift(-1);
     case"h-next":return histShift(1);
-    case"h-go":{const a=$("#h-from").value,b=$("#h-to").value;if(!a||!b)return toast("날짜를 고르세요");S.h.mode="range";S.h.from=a;S.h.to=b;return loadHist()}
     case"h-day":{if(S.dirty.size&&!confirm("저장하지 않은 메모가 있습니다. 이동할까요?"))return;S.dirty.clear();S.sel=t.dataset.d;S.tab=store("tab0")&&store("tab0")!=="hist"?store("tab0"):"split";store("tab",S.tab);await loadReport();render();return}
     case"h-copy":try{await copyText(S.h.data.text);toast("복사했습니다. AI 창에 붙여 넣으세요")}catch(e){toast("복사하지 못했습니다")}return;
     case"open-garmin":return openGarmin();

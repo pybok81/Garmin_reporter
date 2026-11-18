@@ -29,10 +29,13 @@ def week_start(d: date) -> date:
 
 
 def period(mode: str, start: date, end: date) -> tuple[date, date]:
-    """비교할 바로 앞 기간. week=앞의 7일, month=앞의 달, 그 밖에는 같은 길이."""
+    """비교할 바로 앞 기간. week=앞의 7일, month=앞의 달, year=앞의 해, 그 밖에는 같은 길이."""
     if mode == "month":
         pe = start - timedelta(days=1)
         return pe.replace(day=1), pe
+    if mode == "year":
+        pe = start - timedelta(days=1)
+        return pe.replace(month=1, day=1), pe
     n = (end - start).days + 1
     return start - timedelta(days=n), start - timedelta(days=1)
 
@@ -171,7 +174,7 @@ def _delta(cur, prev, unit="", digits=1):
 
 def to_text(res: dict) -> str:
     c, p = res["cur"], res["prev"]
-    label = {"week": "주간", "month": "월간"}.get(res["mode"], "기간")
+    label = {"week": "주간", "month": "월간", "year": "연간"}.get(res["mode"], "기간")
     L = [f"## {c['start']} ~ {c['end']} {label} 요약 (Garmin 기록, 손목 심박 기준)", "",
          f"비교 기간: {p['start']} ~ {p['end']}", ""]
     L += [f"- 운동 {c['sessions']}회 / {c['activeDays']}일, 총 {c['hours']:g}시간{_delta(c['hours'], p['hours'], '시간', 2)}",

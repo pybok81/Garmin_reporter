@@ -1178,7 +1178,7 @@ def db_sync(days: list[str] | None = None, create: bool = False) -> dict | None:
 
 
 def _period_args(q: dict) -> tuple[str, str, str]:
-    """mode(week|month|range)와 from/to. 비면 이번 주/이번 달 기준으로 채운다."""
+    """mode(week|month|year|range)와 from/to. 비면 이번 주/이번 달 기준으로 채운다."""
     mode = (q.get("mode") or ["week"])[0]
     today = date.today()
     a, b = (q.get("from") or [""])[0], (q.get("to") or [""])[0]
@@ -1197,13 +1197,13 @@ def _period_args(q: dict) -> tuple[str, str, str]:
         raise ApiError(400, "시작일이 끝일보다 늦습니다")
     if (date.fromisoformat(b) - date.fromisoformat(a)).days > 800:
         raise ApiError(400, "기간이 너무 깁니다 (최대 800일)")
-    return mode if mode in ("week", "month") else "range", a, b
+    return mode if mode in ("week", "month", "year") else "range", a, b
 
 
 def api_history(q: dict) -> dict:
     mode, a, b = _period_args(q)
     res = history_view.build(db_path(), mode, a, b)
-    if res.get("exists") and res["cur"]["sets"] and (date.fromisoformat(b) - date.fromisoformat(a)).days <= 34:
+    if res.get("exists") and res["cur"]["sets"] and (date.fromisoformat(b) - date.fromisoformat(a)).days <= 366:
         try:   # 웨이트 구분별 세트 (원본·수정에서 계산). 실패해도 요약은 그대로 보여 준다
             res["weight"] = wk.weight_summary(CFG["data"], CFG["root"], date.fromisoformat(a), date.fromisoformat(b), ROOT / "names.toml")
         except Exception as err:  # noqa: BLE001

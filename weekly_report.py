@@ -103,7 +103,8 @@ def weight_summary(data_root: Path, corr_root: Path, start: date, end: date, nam
 
     tot = {g: [0, 0] for g in GROUPS}
     sub = {"PULL_UP": [0, 0], "PUSH_UP": [0, 0]}
-    hinge = {"gym": 0, "home": 0, "noweight": 0}
+    hinge = {"gym": 0, "home": 0, "unknown": 0}
+    holds = {"sets": 0, "sec": 0.0, "parts": {}}            # 버티기(R26): 부위 → 초
     unclassified: dict[str, int] = {}
     by_code: dict[str, int] = {}
     parts: dict[str, list[int]] = {}                       # 부위 → [세트, 반복]
@@ -127,6 +128,11 @@ def weight_summary(data_root: Path, corr_root: Path, start: date, end: date, nam
             for r in (c["rows"] if c else []):
                 n_sets += 1
                 codes = [r["name"], r["category"]]
+                if r.get("hold"):                          # 시간만 있는 세트는 따로 (구분·부위·목표에서 뺌)
+                    holds["sets"] += 1
+                    holds["sec"] += r["dur"]
+                    holds["parts"][r["part"] or "미분류"] = holds["parts"].get(r["part"] or "미분류", 0) + r["dur"]
+                    continue
                 pt = r["part"] or "미분류"
                 parts.setdefault(pt, [0, 0])
                 parts[pt][0] += 1
@@ -151,12 +157,12 @@ def weight_summary(data_root: Path, corr_root: Path, start: date, end: date, nam
                         by_code[x] = by_code.get(x, 0) + 1
                 if any(x.endswith("DEADLIFT") for x in codes):      # 힌지류만 홈/웨이트를 나눈다
                     kg = r["kg"]
-                    if any("KETTLEBELL" in x for x in codes) or (kg and kg <= home_max):
+                    if any("KETTLEBELL" in x for x in codes) or (kg and kg <= home_max) or (not kg and r["bw"]):
                         hinge["home"] += 1
+                    elif not kg:
+                        hinge["unknown"] += 1                # 무게 미입력은 불명 (R27)
                     else:
                         hinge["gym"] += 1
-                        if not kg:
-                            hinge["noweight"] += 1
     done = []
     for key, (lo, hi) in targets.items():
         if key.upper() in by_code:
@@ -175,7 +181,9 @@ def weight_summary(data_root: Path, corr_root: Path, start: date, end: date, nam
             "pushUp": {"sets": sub["PUSH_UP"][0], "reps": sub["PUSH_UP"][1]},
             "hinge": hinge, "homeMaxKg": home_max,
             "unclassified": [{"name": k, "sets": v} for k, v in sorted(unclassified.items(), key=lambda kv: -kv[1])],
-            "targets": done, "body": body}
+            "targets": done, "body": body,
+            "holds": {"sets": holds["sets"], "sec": round(holds["sec"]),
+                      "parts": [{"part": k, "sec": round(v)} for k, v in sorted(holds["parts"].items(), key=lambda kv: -kv[1])]}}
 
 
 def weight_markdown(w: dict) -> list[str]:
@@ -195,17 +203,20 @@ def weight_markdown(w: dict) -> list[str]:
     un = sum(x["sets"] for x in w["unclassified"])
     if un:
         L.append(f"| 미분류 | {un} | |")
+    ho = w.get("holds") or {"sets": 0}
+    if ho["sets"]:
+        L.append(f"| 버티기 (시간 세트) | {ho['sets']} | {ho['sec']}초 |")
     L += [f"| **합계** | **{w['sets']}** | |", ""]
     push, pull = g["푸시"]["sets"], g["풀"]["sets"]
     L.append(f"- 푸시:풀 세트 비율 {push} : {pull}" + (f" (풀 1 기준 푸시 {push / pull:.2f})" if pull else ""))
     h = w["hinge"]
-    if h["gym"] + h["home"]:
-        L.append(f"- 힌지류(데드리프트 계열) 웨이트:홈 세트 비율 {h['gym']} : {h['home']} "
-                 f"(홈 = 가민 이름에 케틀벨, 또는 무게 {w['homeMaxKg']:g}kg 이하)")
-        if h["noweight"]:
-            L.append(f"  - 무게 미입력 {h['noweight']}세트는 웨이트로 셈")
+    if h["gym"] + h["home"] + h["unknown"]:
+        L.append(f"- 힌지류(데드리프트 계열) 웨이트:홈:불명 세트 비율 {h['gym']} : {h['home']} : {h['unknown']} "
+                 f"(홈 = 가민 이름에 케틀벨, 또는 무게 {w['homeMaxKg']:g}kg 이하 · 불명 = 무게 미입력)")
     if un:
         L.append("- 미분류(`names.toml [groups]`에 추가하면 구분됨): " + ", ".join(f"{x['name']} {x['sets']}세트" for x in w["unclassified"]))
+    if ho["sets"]:
+        L.append("- 버티기 = 반복 없이 시간만 있는 세트(플랭크 포함). 구분·부위 합계와 푸시:풀 비율에서 뺌")
     L += ["- 세트·반복만 셈 (워밍업 포함, 직접 수정한 세트는 수정값 기준)", ""]
     if w.get("body"):
         L += ["## 웨이트 부위별 세트", "", "| 부위 | 세트 | 반복 |", "|---|---|---|"]
@@ -213,12 +224,90 @@ def weight_markdown(w: dict) -> list[str]:
             L.append(f"| {b['part']} | {b['sets']} | {b['reps']} |")
             for x in b["subs"]:
                 L.append(f"| ↳ {x['name']} | {x['sets']} | {x['reps']} |")
+        if ho["sets"]:
+            L.append(f"| 버티기 (시간 세트) | {ho['sets']} | {ho['sec']}초 |")
+            for x in ho["parts"]:
+                L.append(f"| ↳ {x['part']} | | {x['sec']}초 |")
         L += [f"| **합계** | **{w['sets']}** | |", ""]
         for t in w["targets"]:
             L.append(f"- 주간 목표 {t['label']}: {goal_text(t)}")
         if w["targets"]:
             L.append("")
     return L
+
+
+RUN_KEYS = ("running", "treadmill_running", "track_running", "trail_running")
+BIKE_KEYS = ("cycling", "indoor_cycling", "e_bike_fitness", "virtual_ride")
+
+
+def felt_summary(db, start: str, end: str, reports_root: Path | None) -> dict:
+    """체감 부하(RPE × 분, R23): DB 활동의 시간·종류 + 그날 리포트 메모의 RPE."""
+    acts = [dict(r) for r in db.execute(
+        "SELECT activity_id, day, type_key, duration_s FROM activities WHERE day BETWEEN ? AND ? ORDER BY start_local",
+        (start, end))]
+    memo_cache: dict[str, dict] = {}
+    by_type: dict[str, int] = {}
+    by_day: dict[str, int] = {}
+    total, miss = 0, 0
+    for a in acts:
+        if a["day"] not in memo_cache:
+            memo_cache[a["day"]] = gr.read_saved_notes(Path(reports_root) / f"{a['day']}.md") if reports_root else {}
+        v = gr.felt_load(gr.parse_rpe(memo_cache[a["day"]].get(str(a["activity_id"]))), a["duration_s"])
+        if v is None:
+            miss += 1
+            continue
+        t = hv.group_of(a["type_key"])
+        by_type[t] = by_type.get(t, 0) + v
+        by_day[a["day"]] = by_day.get(a["day"], 0) + v
+        total += v
+    return {"total": total if len(acts) > miss else None, "missing": miss, "count": len(acts),
+            "types": [(t, by_type[t]) for t in hv.ORDER if t in by_type], "days": by_day}
+
+
+def run_stats(db, start: date, end: date, bike_min_per_km: float) -> dict:
+    """러닝 보조 지표(R24)."""
+    def km_min(a: date, b: date) -> tuple[float, float, dict]:
+        run_m, bike_s, per_day = 0.0, 0.0, {}
+        for r in db.execute("SELECT day, type_key, distance_m, duration_s FROM activities WHERE day BETWEEN ? AND ?",
+                            (a.isoformat(), b.isoformat())):
+            if r["type_key"] in RUN_KEYS:
+                run_m += r["distance_m"] or 0
+                per_day[r["day"]] = per_day.get(r["day"], 0) + 1
+            elif r["type_key"] in BIKE_KEYS:
+                bike_s += r["duration_s"] or 0
+        return run_m / 1000, bike_s / 60, per_day
+    km, bmin, per_day = km_min(start, end)
+    prev = [km_min(start - timedelta(days=7 * k), end - timedelta(days=7 * k))[0] for k in (1, 2, 3)]
+    had = [x for x in prev if x > 0]
+    return {"km": round(km, 1), "bikeMin": round(bmin), "bikeKm": round(bmin / bike_min_per_km, 1) if bike_min_per_km else 0.0,
+            "prevKm": round(prev[0], 1), "avg3": round(sum(had) / len(had), 1) if had else None,
+            "doubles": sum(1 for n in per_day.values() if n >= 2), "ratio": bike_min_per_km}
+
+
+def recovery_stats(days: list[dict], start: date, today: date) -> dict:
+    """회복 보조 지표(R25): 수면 5.5h 미만 밤, 완전 휴식일(걷기 말고 운동 없음), HRV 평균·중앙값·최저."""
+    by = {d["date"]: d for d in days}
+    short = sum(1 for d in days if d["sleepH"] and d["sleepH"] < 5.5)
+    nights = sum(1 for d in days if d["sleepH"])
+    rest, counted = 0, 0
+    for i in range(7):
+        k = (start + timedelta(days=i))
+        if k > today:
+            break
+        counted += 1
+        acts = (by.get(k.isoformat()) or {}).get("acts") or []
+        if not [a for a in acts if a["type"] != "걷기"]:
+            rest += 1
+    hv_ = [(d["hrv"], d["date"]) for d in days if d["hrv"]]
+    vals = sorted(v for v, _ in hv_)
+    med = None
+    if vals:
+        n = len(vals)
+        med = vals[n // 2] if n % 2 else (vals[n // 2 - 1] + vals[n // 2]) / 2
+    low = min(hv_) if hv_ else None
+    return {"short": short, "nights": nights, "rest": rest, "counted": counted,
+            "hrvAvg": round(sum(vals) / len(vals), 1) if vals else None, "hrvMed": round(med, 1) if med is not None else None,
+            "hrvMin": (low[0], low[1]) if low else None}
 
 
 def _row(label, cur, prev, unit="", dg=1):
@@ -229,7 +318,8 @@ def _row(label, cur, prev, unit="", dg=1):
 
 
 def build(db_path: Path, key: str, existing: str | None, today: date, *, data_root: Path | None = None,
-          corr_root: Path | None = None, names_path: Path | None = None, profile_line: str = "") -> str | None:
+          corr_root: Path | None = None, names_path: Path | None = None, profile_line: str = "",
+          reports_root: Path | None = None) -> str | None:
     """주간 리포트 마크다운. DB가 없으면 None. existing 은 기존 파일 내용(메모 보존용)."""
     start, end = week_range(key)
     db = hv.connect_ro(db_path)
@@ -241,6 +331,11 @@ def build(db_path: Path, key: str, existing: str | None, today: date, *, data_ro
         ps, pe = hv.period("week", start, end)
         prev = hv.summarize(db, ps.isoformat(), pe.isoformat())
         days = hv.day_rows(db, a, b)
+        rroot = Path(reports_root) if reports_root else (Path(corr_root) / "reports" if corr_root else None)
+        felt = felt_summary(db, a, b, rroot)
+        felt_prev = felt_summary(db, ps.isoformat(), pe.isoformat(), rroot)
+        cfg = tomllib.loads(names_path.read_text(encoding="utf-8")) if names_path and Path(names_path).is_file() else {}
+        runs = run_stats(db, start, end, float((cfg.get("settings") or {}).get("bike_min_per_km", 15)))
     finally:
         db.close()
     saved = {m.group(1): m.group(2) for m in NOTE_RE.finditer(existing or "")}
@@ -258,20 +353,48 @@ def build(db_path: Path, key: str, existing: str | None, today: date, *, data_ro
           _row("총 시간", cur["hours"], prev["hours"], "h", 2),
           _row("러닝 거리", cur["runKm"], prev["runKm"], "km"),
           _row("웨이트 세트", cur["sets"], prev["sets"], "", 0),
-          _row("훈련 부하 합", cur["load"], prev["load"], "", 0),
+          _row("체감 부하 합 (RPE×분)", felt["total"], felt_prev["total"], "", 0),
+          _row("훈련 부하 합 (참고·가민)", cur["load"], prev["load"], "", 0),
           _row("수면 평균", cur["sleepH"], prev["sleepH"], "h"),
           _row("HRV 평균", cur["hrv"], prev["hrv"]),
           _row("안정시 심박 평균", cur["restHr"], prev["restHr"], "bpm")]
     if cur["acwr"]:
         ac = cur["acwr"]
-        L.append(f"| 급성/만성 부하 | {hv._fmt(ac['acute'])} / {hv._fmt(ac['chronic'])} (ACWR {hv._fmt(ac['ratio'])}, {ac['status'] or '-'}) | | {ac['day']} 기준 |")
+        L.append(f"| 급성/만성 부하 (참고·가민) | {hv._fmt(ac['acute'])} / {hv._fmt(ac['chronic'])} (ACWR {hv._fmt(ac['ratio'])}, {ac['status'] or '-'}) | | {ac['day']} 기준 |")
     if cur["types"]:
         L += ["", "## 종류별", "", "| 종류 | 횟수 | 시간 | 거리 | 평균 심박 | 세트 | 부하 |", "|---|---|---|---|---|---|---|"]
         for t in cur["types"]:
             L.append(f"| {t['name']} | {t['count']} | {t['hours']:g}h | {hv._fmt(t['km'], 'km')} | {hv._fmt(t['avgHr'])} | "
                      f"{hv._fmt(t['sets'])} | {t['load']} |")
+    if felt["count"]:
+        L += ["", "## 체감 부하 (RPE × 분)", ""]
+        if felt["total"] is None:
+            L.append(f"_이번 주 운동 {felt['count']}건 모두 RPE 미입력. 일일 리포트 메모의 RPE 칸을 채우면 계산됩니다._")
+        else:
+            L.append("- 종류별: " + " · ".join(f"{t} {v}" for t, v in felt["types"]))
+            L.append("- 날짜별: " + " · ".join(f"{date.fromisoformat(k):%m-%d}({hv.WEEKDAYS[date.fromisoformat(k).weekday()]}) {v}"
+                                               for k, v in sorted(felt["days"].items())))
+            if felt["missing"]:
+                L.append(f"- RPE 미입력 {felt['missing']}건 (합계에서 뺌)")
+        L.append("- 판단 기준은 체감 부하. 가민 훈련 부하는 심박 기반이라 웨이트·느린 러닝이 낮게 잡혀 참고로만 본다")
+    r = runs
+    L += ["", "## 러닝 보조 지표", "",
+          f"- 실제 러닝 {r['km']:g}km · 사이클 환산 {r['bikeKm']:g}km (사이클 {r['bikeMin']}분, {r['ratio']:g}분=1km) · 합계(환산 포함) {r['km'] + r['bikeKm']:.1f}km"]
+    if r["avg3"]:
+        L.append(f"- 직전 3주 평균 {r['avg3']:g}km 대비 {r['km'] / r['avg3'] * 100:.0f}% (실제 러닝 기준)")
+    if r["prevKm"]:
+        inc = (r["km"] - r["prevKm"]) / r["prevKm"] * 100
+        L.append(f"- 전주 대비 {inc:+.0f}% (전주 {r['prevKm']:g}km)" + (" ⚠️ +30% 초과" if inc > 30 else ""))
+    L.append(f"- 하루 2회 러닝 {r['doubles']}일")
+    rc = recovery_stats(days, start, today)
+    L += ["", "## 회복 보조 지표", "",
+          f"- 수면 5.5시간 미만 {rc['short']}밤 (수면 기록 {rc['nights']}밤 중)",
+          f"- 완전 휴식일 {rc['rest']}일 (걷기 말고 운동이 없는 날, {rc['counted']}일 중)"]
+    if rc["hrvAvg"] is not None:
+        mn = rc["hrvMin"]
+        L.append(f"- HRV 평균 {rc['hrvAvg']:g} · 중앙값 {rc['hrvMed']:g} · 최저 {mn[0]:g} ({mn[1][5:]})")
     if data_root is not None and names_path is not None and cur["sets"]:
-        L += [""] + weight_markdown(weight_summary(data_root, corr_root, start, end, names_path))[:-1]
+        L += [""] + weight_markdown(weight_summary(data_root, corr_root, start, end, names_path, reports_root))[:-1]
     z = cur["zonesMin"]
     L += ["", "## 심박존 시간 (분)", "",
           f"Z1 미만 {z[0]} · Z1 {z[1]} · Z2 {z[2]} · Z3 {z[3]} · Z4 {z[4]} · Z5 {z[5]}", "", "## 날짜별", ""]

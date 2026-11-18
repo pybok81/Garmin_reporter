@@ -35,16 +35,16 @@ def _sub_names(names_path: Path) -> list[str]:
 
 
 def _weight_cols(subs: list[str]) -> list[str]:
-    return (["웨이트세트"] + [f"구분_{g}" for g in wk.GROUPS] + ["구분_미분류"] + [f"부위_{p}" for p in wk.PARTS]
+    return (["웨이트세트"] + [f"구분_{g}" for g in wk.GROUPS] + ["구분_미분류", "버티기세트", "버티기초"] + [f"부위_{p}" for p in wk.PARTS]
             + [s.replace("/", "_") for s in subs])
 
 
 def _weight_vals(w: dict, subs: list[str]) -> list:
     if not w.get("rawDays"):
-        return [""] * (len(wk.GROUPS) + 2 + len(wk.PARTS) + len(subs))
+        return [""] * (len(wk.GROUPS) + 4 + len(wk.PARTS) + len(subs))
     parts = {b["part"]: b for b in w["body"]}
     sub = {f"{b['part']}/{x['name']}": x["sets"] for b in w["body"] for x in b["subs"]}
-    return ([w["sets"]] + [w["groups"][g]["sets"] for g in wk.GROUPS] + [sum(x["sets"] for x in w["unclassified"])] + [parts[p]["sets"] if p in parts else 0 for p in wk.PARTS]
+    return ([w["sets"]] + [w["groups"][g]["sets"] for g in wk.GROUPS] + [sum(x["sets"] for x in w["unclassified"]), w["holds"]["sets"], w["holds"]["sec"]] + [parts[p]["sets"] if p in parts else 0 for p in wk.PARTS]
             + [sub.get(s, 0) for s in subs])
 
 

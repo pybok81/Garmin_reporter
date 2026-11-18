@@ -32,7 +32,7 @@ import history_view
 import weekly_report as wk
 import export_csv
 import profile_data
-from garmin_report import NOTE_RE, load_names, weight_kg
+from garmin_report import NOTE_RE, load_names, parse_rpe, weight_kg
 
 ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "webapp"
@@ -301,7 +301,7 @@ def write_week(key: str) -> str | None:
         old = old_bytes.decode("utf-8") if old_bytes is not None else None
         a, b = wk.week_range(key)
         text = wk.build(db_path(), key, old, date.today(), data_root=CFG["data"], corr_root=CFG["root"],
-                        names_path=ROOT / "names.toml",
+                        names_path=ROOT / "names.toml", reports_root=CFG["reports"],
                         profile_line=profile_data.line(profile_data.load(CFG["root"]), b.isoformat(), a.isoformat()))
         if text is None:
             return None
@@ -968,9 +968,9 @@ def api_save_note(body: dict) -> dict:
         old = pattern.search(original).group(0)
         updated = pattern.sub(lambda m: f"<!-- notes:{note_id} -->\n{text}<!-- /notes -->", original, count=1)
         atomic_write(path, updated, crlf)
-        # 메모의 `보정:` 줄이 바뀌었으면 그날 리포트를 다시 만든다 (R22, 메모는 유지)
+        # 메모의 `보정:` 줄(R22)이나 RPE(R23, 체감 부하)가 바뀌었으면 그날·그 주 리포트를 다시 만든다 (메모는 유지)
         rebuilt = False
-        if (valid_day(day) and corr.memo_lines(old) != corr.memo_lines(text)
+        if (valid_day(day) and (corr.memo_lines(old) != corr.memo_lines(text) or parse_rpe(old) != parse_rpe(text))
                 and (CFG["data"] / "raw" / day).is_dir()):
             code, out = run_script([str(ROOT / "garmin_report.py"), "--date", day, "--days", "1",
                                     "--data", str(CFG["data"]), "--reports", str(CFG["reports"]),

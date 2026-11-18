@@ -508,10 +508,11 @@ function renderHist(){
   const W=D.weight;
   const wt=W&&W.rawDays?(()=>{
     const g=W.groups,r=(n,v,sub)=>`<tr${sub?' class="muted"':""}><td>${sub?"↳ ":""}${n}</td><td>${v.sets}</td><td>${v.reps}</td></tr>`;
-    const un=W.unclassified.reduce((a,x)=>a+x.sets,0),h=W.hinge;
-    return `<div class="hh">웨이트 구분별 세트</div><div class="tw"><table><thead>${th(["구분","세트","반복"])}</thead><tbody>${r("푸시",g["푸시"])}${r("그중 푸시업",W.pushUp,1)}${r("풀",g["풀"])}${r("그중 풀업",W.pullUp,1)}${r("하체",g["하체"])}${r("코어",g["코어"])}${un?`<tr><td>미분류</td><td>${un}</td><td></td></tr>`:""}</tbody></table></div>
-    <div class="muted" style="font-size:13px;line-height:1.7;margin-top:6px">푸시:풀 ${g["푸시"].sets} : ${g["풀"].sets}${g["풀"].sets?` (풀 1 기준 푸시 ${(g["푸시"].sets/g["풀"].sets).toFixed(2)})`:""}${h.gym+h.home?` · 힌지류 웨이트:홈 ${h.gym} : ${h.home} (홈 = 케틀벨 또는 ${W.homeMaxKg}kg 이하)`:""}${un?`<br>미분류: ${W.unclassified.map(x=>esc(x.name)+" "+x.sets+"세트").join(", ")} (names.toml [groups]에 추가하면 구분됩니다)`:""}</div>
-    <div class="hh">웨이트 부위별 세트</div><div class="tw"><table><thead>${th(["부위","세트","반복"])}</thead><tbody>${(W.body||[]).map(b=>r(b.part,b)+b.subs.map(x=>r(x.name,x,1)).join("")).join("")}</tbody></table></div>
+    const un=W.unclassified.reduce((a,x)=>a+x.sets,0),h=W.hinge,ho=W.holds||{sets:0,sec:0,parts:[]};
+    const hr=ho.sets?`<tr><td>버티기 (시간 세트)</td><td>${ho.sets}</td><td>${ho.sec}초</td></tr>`:"";
+    return `<div class="hh">웨이트 구분별 세트</div><div class="tw"><table><thead>${th(["구분","세트","반복"])}</thead><tbody>${r("푸시",g["푸시"])}${r("그중 푸시업",W.pushUp,1)}${r("풀",g["풀"])}${r("그중 풀업",W.pullUp,1)}${r("하체",g["하체"])}${r("코어",g["코어"])}${un?`<tr><td>미분류</td><td>${un}</td><td></td></tr>`:""}${hr}</tbody></table></div>
+    <div class="muted" style="font-size:13px;line-height:1.7;margin-top:6px">푸시:풀 ${g["푸시"].sets} : ${g["풀"].sets}${g["풀"].sets?` (풀 1 기준 푸시 ${(g["푸시"].sets/g["풀"].sets).toFixed(2)})`:""}${h.gym+h.home+h.unknown?` · 힌지류 웨이트:홈:불명 ${h.gym} : ${h.home} : ${h.unknown} (홈 = 케틀벨 또는 ${W.homeMaxKg}kg 이하, 불명 = 무게 미입력)`:""}${ho.sets?"<br>버티기 = 반복 없이 시간만 있는 세트(플랭크 포함), 구분·부위 합계에서 뺌":""}${un?`<br>미분류: ${W.unclassified.map(x=>esc(x.name)+" "+x.sets+"세트").join(", ")} (names.toml [groups]에 추가하면 구분됩니다)`:""}</div>
+    <div class="hh">웨이트 부위별 세트</div><div class="tw"><table><thead>${th(["부위","세트","반복"])}</thead><tbody>${(W.body||[]).map(b=>r(b.part,b)+b.subs.map(x=>r(x.name,x,1)).join("")).join("")}${hr}${ho.parts.map(x=>`<tr class="muted"><td>↳ ${esc(x.part)}</td><td></td><td>${x.sec}초</td></tr>`).join("")}</tbody></table></div>
     <div class="muted" style="font-size:13px;line-height:1.7;margin-top:6px">${W.targets.map(t=>{const g=t.lo===t.hi?t.lo:t.lo+"~"+t.hi;return `목표 ${esc(t.label)} ${t.done}/${g}세트 (${t.done<t.lo?"부족":t.done>t.hi?"초과":"범위 안"})`}).join("<br>")}</div>`})():"";
   const weeks=D.weeks.length?`<div class="hh">주별</div><div class="tw"><table><thead>${th(["주","운동","시간","러닝","세트","부하","수면","HRV"])}</thead><tbody>${D.weeks.map(w=>td([w.start.slice(5)+" ~ "+w.end.slice(5),w.sessions,w.hours+"h",w.runKm+"km",w.sets,w.load,hv(w.sleepH,"h"),hv(w.hrv)])).join("")}</tbody></table></div>`:"";
   const rpt=new Set(S.days.map(d=>d.date));
@@ -994,7 +995,7 @@ document.addEventListener("click",async ev=>{
         const r=await api("/api/notes",{date:S.sel,id,text});
         S.md=replaceNote(S.md,id,text);S.dirty.delete(id);
         st.className="st ok";st.textContent="저장했습니다";
-        if(r.rebuilt){await loadReport();render();toast("메모의 보정을 반영해 리포트를 다시 만들었습니다")}
+        if(r.rebuilt){await loadReport();render();toast("보정·RPE를 반영해 리포트를 다시 만들었습니다")}
         loadDays().then(renderSide);
       }catch(e){st.className="st err";st.textContent=e.error;t.disabled=false}
       return;

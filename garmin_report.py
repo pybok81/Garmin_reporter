@@ -137,6 +137,25 @@ def load_names(path: Path) -> tuple[dict[str, str], str]:
     return data.get("exercises", {}), str(data.get("settings", {}).get("weight_unit", "auto")).lower()
 
 
+RPE_RE = re.compile(r"RPE[^:\n]*[:：][ \t]*(\d+(?:\.\d+)?)(?:[ \t]*[~\-][ \t]*(\d+(?:\.\d+)?))?")
+
+
+def parse_rpe(memo: str | None) -> float | None:
+    """운동 메모의 `RPE(1~10): 7` 값. `6~7`·`6-7`은 평균. 1~10 밖이거나 비면 None (R23)."""
+    m = RPE_RE.search(memo or "")
+    if not m:
+        return None
+    v = float(m.group(1)) if not m.group(2) else (float(m.group(1)) + float(m.group(2))) / 2
+    return v if 1 <= v <= 10 else None
+
+
+def felt_load(rpe: float | None, seconds: Any) -> int | None:
+    """체감 부하 = RPE × 분."""
+    if rpe is None or not isinstance(seconds, (int, float)) or seconds <= 0:
+        return None
+    return round(rpe * round(seconds / 60))      # 표시하는 분(반올림)과 곱이 맞게
+
+
 def prettify(code: str) -> str:
     return code.replace("_", " ").title()
 
@@ -289,6 +308,8 @@ def classify_sets(sets_json: Any, names: dict[str, str], unit_cfg: str,
             "part": next((PARTS[c] for c in codes if c in PARTS), "미분류"),
             "reps": s.get("repetitionCount") or 0, "kg": w, "bw": any(c in BODYWEIGHT for c in codes),
             "dur": s.get("duration") or 0, "corrected": bool(s.get("_corrected")),
+            # 버티기(R26): 반복이 없고 시간만 있는 세트. 구분·부위 합계와 따로 센다
+            "hold": not (s.get("repetitionCount") or 0) and bool(s.get("duration")),
         })
     return {"rows": rows, "before": before, "fix_warn": fix_warn, "fix_done": fix_done, "fixes": fixes,
             "grams_likely": grams_likely, "rest_total": rest_total}
@@ -313,16 +334,20 @@ def strength_section(sets_json: Any, names: dict[str, str], unit_cfg: str,
         else:
             g = {"label": label, "part": r["part"], "sets": []}
             groups.append(g)
-        g["sets"].append((r["reps"], r["kg"], r["bw"], r["dur"]))
+        g["sets"].append((r["reps"], r["kg"], r["bw"], r["dur"], r["hold"]))
 
     out = ["", "**웨이트 세트**", "", "| 운동 | 세트 | 반복×중량 | 총 반복 | 볼륨 |", "|---|---|---|---|---|"]
     total_sets = total_reps = 0
     total_vol = 0.0
     unlogged = 0
     part_tot: dict[str, list] = {}
+    hold_tot: dict[str, list] = {}                     # 부위 → [세트, 초] (버티기, R26)
     for g in groups:
         parts, reps_sum, vol = [], 0, 0.0
-        for reps, w, is_bw, dur in g["sets"]:
+        for reps, w, is_bw, dur, hold in g["sets"]:
+            if hold:
+                ht = hold_tot.setdefault(g["part"], [0, 0.0])
+                ht[0] += 1; ht[1] += dur
             if reps == 0:
                 parts.append(f"{int(round(dur))}초" if dur else "0회")  # 플랭크처럼 시간 운동이거나 반복 미기록
             elif w:
@@ -334,17 +359,24 @@ def strength_section(sets_json: Any, names: dict[str, str], unit_cfg: str,
                 unlogged += 1
             reps_sum += reps
             vol += reps * w if w else 0
-        pt = part_tot.setdefault(g["part"], [0, 0, 0.0])
-        pt[0] += len(g["sets"]); pt[1] += reps_sum; pt[2] += vol
+        n_rep = sum(1 for x in g["sets"] if not x[4])
+        if n_rep:
+            pt = part_tot.setdefault(g["part"], [0, 0, 0.0])
+            pt[0] += n_rep; pt[1] += reps_sum; pt[2] += vol
         total_sets += len(g["sets"])
         total_reps += reps_sum
         total_vol += vol
-        out.append(f"| {g['label']} | {len(g['sets'])} | {', '.join(parts)} | {reps_sum} | "
+        all_hold = all(x[4] for x in g["sets"])
+        out.append(f"| {g['label']} | {len(g['sets'])} | {', '.join(parts)} | {'-' if all_hold else reps_sum} | "
                    f"{f'{vol:,.0f}kg' if vol else '-'} |")
     out.append(f"| **합계** | **{total_sets}** | | **{total_reps}** | **{total_vol:,.0f}kg** |")
     order = sorted(part_tot.items(), key=lambda kv: -kv[1][0])
-    out += ["", "부위별: " + " / ".join(
-        f"{k} {v[0]}세트·{v[1]}회" + (f"·{v[2]:,.0f}kg" if v[2] else "") for k, v in order)]
+    bits = [f"{k} {v[0]}세트·{v[1]}회" + (f"·{v[2]:,.0f}kg" if v[2] else "") for k, v in order]
+    if hold_tot:
+        hs, hsec = sum(v[0] for v in hold_tot.values()), sum(v[1] for v in hold_tot.values())
+        bits.append(f"버티기 {hs}세트·{hsec:.0f}초 (" + ", ".join(
+            f"{k} {v[1]:.0f}초" for k, v in sorted(hold_tot.items(), key=lambda kv: -kv[1][1])) + ")")
+    out += ["", "부위별: " + " / ".join(bits)]
     if unlogged:
         out += ["", f"⚠️ 무게 미입력 세트 {unlogged}개(`무게?`) — 볼륨이 실제보다 적게 계산됨. 분석 시 신뢰도 낮음."]
     if fix_lines:
@@ -386,9 +418,13 @@ def activity_block(idx: int, entry: dict, adir: Path, names: dict[str, str], uni
     te_a, te_n = pick(srcs, "aerobicTrainingEffect"), pick(srcs, "anaerobicTrainingEffect")
     if te_a is not None or te_n is not None:
         rows.append(("훈련효과 유산소/무산소", f"{fmt_num(te_a, '', 1)} / {fmt_num(te_n, '', 1)}"))
+    rpe = parse_rpe(saved_notes.get(act_id))
+    fl = felt_load(rpe, duration)
+    rows.append(("체감 부하 (RPE×분)", f"RPE {rpe:g} × {round(duration / 60)}분 = **{fl}**" if fl is not None
+                 else "RPE 미입력 (메모의 RPE 칸을 채우면 계산)"))
     load = pick(srcs, "activityTrainingLoad")
     if load is not None:
-        rows.append(("훈련 부하", fmt_num(load)))
+        rows.append(("훈련 부하 (참고·가민)", fmt_num(load)))
     zline = hr_zone_line(load_json(adir / "hr_zones.json"))
     if zline:
         rows.append(("심박 존 시간", zline))
@@ -444,6 +480,18 @@ def build_report(day: str, data_root: Path, report_path: Path, names: dict[str, 
         lines += activity_block(i, entry, raw / f"activity_{act_id}", names, unit_cfg, saved,
                                 corr.for_activity(day_fixes, act_id))
 
+    if acts:   # 하루 체감 부하 합계 (R23)
+        fls, miss, gl = [], 0, 0.0
+        for e in acts:
+            v = felt_load(parse_rpe(saved.get(str(e.get("activityId")))), e.get("duration"))
+            if v is None:
+                miss += 1
+            else:
+                fls.append(v)
+            gl += e.get("activityTrainingLoad") or 0
+        lines += [f"**하루 체감 부하 (RPE×분)**: {sum(fls) if fls else '-'}"
+                  + (f" · RPE 미입력 {miss}건 (합계에서 뺌)" if miss else "")
+                  + f" · 가민 훈련 부하 합 {gl:.0f} (참고)", ""]
     daily_body = saved.get("daily", DAILY_NOTE_TEMPLATE)
     lines += ["## 하루 메모", f"<!-- notes:daily -->\n{daily_body}<!-- /notes -->", ""]
 

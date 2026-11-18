@@ -103,7 +103,7 @@ def build(db_path: Path, data_root: Path, corr_root: Path, names_path: Path, tod
         while d <= last:
             e = d + timedelta(days=6)
             w = wk.weight_summary(data_root, corr_root, d, e, names_path)
-            rows.insert(1, [wk.week_key(d), d.isoformat(), e.isoformat()] + _period_row(db, d, e) + [recent(d, e)] + _weight_vals(w, subs))
+            rows.insert(1, [wk.month_week(wk.week_key(d)), d.isoformat(), e.isoformat()] + _period_row(db, d, e) + [recent(d, e)] + _weight_vals(w, subs))
             d = e + timedelta(days=1)
         out["weeks.csv"] = _csv(rows)
 

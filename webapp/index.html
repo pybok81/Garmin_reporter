@@ -254,8 +254,15 @@ const fmtLocal=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}
 const parseDay=s=>new Date(s+"T00:00:00");
 const addDays=(s,n)=>{const d=parseDay(s);d.setDate(d.getDate()+n);return fmtLocal(d)};
 const isWeek=k=>/^\d{4}-W\d{2}$/.test(k||"");
-const wdOf=s=>isWeek(s)?"주간":WD[(parseDay(s).getDay()+6)%7];
-const dayLabel=s=>isWeek(s)?`${s} 주간`:`${s.slice(5)} (${wdOf(s)})`;
+// 주 키(2026-W46)는 파일 이름에만 쓰고, 화면에는 날짜 범위(11-09 ~ 11-15)와 "11월 2주"로 보여 준다.
+function wkInfo(k){
+  const y=+k.slice(0,4),n=+k.slice(6),j4=new Date(y,0,4),mon=new Date(y,0,4-((j4.getDay()+6)%7)+(n-1)*7);
+  const sun=new Date(mon);sun.setDate(mon.getDate()+6);const th=new Date(mon);th.setDate(mon.getDate()+3);
+  const f=d=>fmtLocal(d).slice(5);
+  return {range:`${f(mon)} ~ ${f(sun)}`,mw:`${th.getMonth()+1}월 ${Math.floor((th.getDate()-1)/7)+1}주`};
+}
+const wdOf=s=>isWeek(s)?wkInfo(s).mw:WD[(parseDay(s).getDay()+6)%7];
+const dayLabel=s=>isWeek(s)?`${wkInfo(s).range} 주간`:`${s.slice(5)} (${wdOf(s)})`;
 const WEEK_QUESTIONS=["이번 주 훈련을 평가해 줘 (부하·회복·균형)","다음 주 훈련 계획을 제안해 줘","주간 메모에 적을 내용을 정리해 줘"];
 const QS=()=>isWeek(S.sel)?WEEK_QUESTIONS:QUESTIONS;
 function syncQuestion(){const w=isWeek(S.sel),from=w?QUESTIONS:WEEK_QUESTIONS,to=w?WEEK_QUESTIONS:QUESTIONS,i=from.indexOf(S.question);if(i>=0)S.question=to[i]}
@@ -524,7 +531,7 @@ function renderSide(){
     else badge=`<span class="badge ${d.notesFilled===d.notesTotal?"done":""}">메모 ${d.notesFilled}/${d.notesTotal}</span>`;
     return `<button class="day${d.workouts?"":" rest"}" data-day="${d.date}" aria-current="${d.date===S.sel}"><span><span class="t"><span class="num">${d.date.slice(5)}</span><span class="wd">${wdOf(d.date)}</span></span><span class="s">${d.workouts?esc(d.types.join(" · ")):"운동 없음"}</span></span><span class="row" style="gap:6px">${d.hasFeedback?`<span class="badge" title="AI 피드백 있음">피드백</span>`:""}${badge}</span></button>`;
   };
-  const weekBtn=w=>`<button class="day wkr" data-day="${w.key}" aria-current="${w.key===S.sel}"><span><span class="t"><span class="num">${w.key.slice(5)}</span><span class="wd">주간 리포트</span></span><span class="s">${w.start.slice(5)} ~ ${w.end.slice(5)}</span></span><span class="row" style="gap:6px">${w.hasFeedback?`<span class="badge" title="AI 피드백 있음">피드백</span>`:""}${w.ongoing?`<span class="badge warn">진행 중</span>`:`<span class="badge ${w.notesFilled?"done":""}">메모 ${w.notesFilled}/${w.notesTotal}</span>`}</span></button>`;
+  const weekBtn=w=>`<button class="day wkr" data-day="${w.key}" aria-current="${w.key===S.sel}"><span><span class="t"><span class="num">${w.start.slice(5)} ~ ${w.end.slice(5)}</span></span><span class="s">${wkInfo(w.key).mw} · 주간 리포트</span></span><span class="row" style="gap:6px">${w.hasFeedback?`<span class="badge" title="AI 피드백 있음">피드백</span>`:""}${w.ongoing?`<span class="badge warn">진행 중</span>`:`<span class="badge ${w.notesFilled?"done":""}">메모 ${w.notesFilled}/${w.notesTotal}</span>`}</span></button>`;
   if(S.sel&&S.sel!==S.revealed){S.revealed=S.sel;S.side=isWeek(S.sel)?"week":"day"}   // 선택이 바뀌면 그 종류의 탭으로
   const todoD=S.days.reduce((a,d)=>a+(d.notesTotal-d.notesFilled),0);
   const sideTabs=`<div class="sidetabs" role="tablist"><button role="tab" data-side="day" aria-selected="${S.side==="day"}">일간 <span class="muted">${S.days.length}</span></button><button role="tab" data-side="week" aria-selected="${S.side==="week"}">주간 <span class="muted">${S.weeks.length}</span></button></div>`;
@@ -643,7 +650,7 @@ function renderMain(){
   const info=curInfo();
   const rebuild=info&&info.hasRaw?`<button class="btn small" data-act="rebuild">${isWeek(S.sel)?"주간 리포트 다시 만들기":"리포트 다시 만들기"}</button>`:"";
   const body=`<div class="rep">${renderReportWithNotes(S.md)}${graphBlock()}${feedbackBlock()}</div>`;
-  el.innerHTML=`<div class="mhead"><div><h2><span class="num">${isWeek(S.sel)?S.sel:S.sel.slice(5)}</span><span class="wd">${wdOf(S.sel)}</span></h2><span class="muted" style="font-size:12px">${isWeek(S.sel)?"weekly/":""}${S.sel}.md</span></div><div class="row">${rebuild}</div></div><div class="mbody">${body}</div>`;
+  el.innerHTML=`<div class="mhead"><div><h2><span class="num">${isWeek(S.sel)?wkInfo(S.sel).range:S.sel.slice(5)}</span><span class="wd">${wdOf(S.sel)}</span></h2><span class="muted" style="font-size:12px">${isWeek(S.sel)?"weekly/":""}${S.sel}.md</span></div><div class="row">${rebuild}</div></div><div class="mbody">${body}</div>`;
   el.querySelectorAll(".fr textarea").forEach(autosize);
 }
 function autosize(t){t.style.height="auto";t.style.height=Math.max(40,t.scrollHeight+2)+"px"}
@@ -654,7 +661,7 @@ async function promptText(){
   return buildPrompt();
 }
 function buildPrompt(){
-  return `${S.question.trim()}\n\n아래는 ${S.sel} ${isWeek(S.sel)?"주간":"훈련"} 리포트입니다.\n\n---\n${S.md}`;
+  return `${S.question.trim()}\n\n아래는 ${isWeek(S.sel)?`${S.sel.slice(0,4)}-${wkInfo(S.sel).range} (${wkInfo(S.sel).mw})`:S.sel} ${isWeek(S.sel)?"주간":"훈련"} 리포트입니다.\n\n---\n${S.md}`;
 }
 function renderClaude(){
   const el=$("#claude");

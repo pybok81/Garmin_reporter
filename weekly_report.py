@@ -40,6 +40,18 @@ def week_key(d: date) -> str:
     return f"{y}-W{w:02d}"
 
 
+def month_week(key: str) -> str:
+    """'11월 2주'. 주의 목요일이 속한 달 기준(달에 걸친 주는 목요일 쪽 달)."""
+    th = week_range(key)[0] + timedelta(days=3)
+    return f"{th.month}월 {(th.day - 1) // 7 + 1}주"
+
+
+def week_title(key: str) -> str:
+    """'2026-11-09 ~ 11-15 (11월 2주)'. 화면·리포트 제목용 (파일 이름은 2026-W46 그대로)."""
+    a, b = week_range(key)
+    return f"{a.isoformat()} ~ {b:%m-%d} ({month_week(key)})"
+
+
 def week_range(key: str) -> tuple[date, date]:
     m = WEEK_RE.match(key)
     if not m:
@@ -229,7 +241,7 @@ def build(db_path: Path, key: str, existing: str | None, today: date, *, data_ro
         db.close()
     saved = {m.group(1): m.group(2) for m in NOTE_RE.finditer(existing or "")}
     body = saved.get("week", NOTE_TEMPLATE)
-    L = [f"# {key} ({start:%m-%d} ~ {end:%m-%d}) 주간 리포트", ""]
+    L = [f"# {week_title(key)} 주간 리포트", ""]
     if end >= today:
         L += [f"> ⚠️ 진행 중인 주입니다. {today.isoformat()} 기준으로 만든 내용이고, 주가 끝난 뒤 다시 만들면 갱신됩니다.", ""]
     L += [f"기간: {a} ~ {b} · 비교: {ps.isoformat()} ~ {pe.isoformat()} (전주) · 심박은 손목 센서 기준", ""]

@@ -884,7 +884,7 @@ def compose_ai_text(day: str, question: str, with_plan: bool, with_ref: bool, gr
             parts.append(title)
             for n in names:
                 parts += [f"### {n[:-3]}", (doc_dir(kind) / n).read_text(encoding="utf-8-sig").replace("\r\n", "\n").strip(), ""]
-    parts += [f"## {day} {'주간' if wk.valid_week(day) else '훈련'} 리포트 (메모 포함)", rp.read_text(encoding="utf-8").replace("\r\n", "\n").strip(), ""]
+    parts += [f"## {wk.week_title(day) + ' 주간' if wk.valid_week(day) else day + ' 훈련'} 리포트 (메모 포함)", rp.read_text(encoding="utf-8").replace("\r\n", "\n").strip(), ""]
     if graph in ("jumps", "full") and valid_day(day):
         parts.append(series_text(day, graph))
     return "\n".join(parts)

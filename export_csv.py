@@ -13,6 +13,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import history_view as hv
+import profile_data
 import weekly_report as wk
 
 FILES = ("days.csv", "activities.csv", "weeks.csv", "months.csv")
@@ -66,17 +67,30 @@ def build(db_path: Path, data_root: Path, corr_root: Path, names_path: Path, tod
             return None
         first, last = date.fromisoformat(lo), today
         subs = _sub_names(names_path)
+        prof = profile_data.load(corr_root) if corr_root else []
+        wday = {r["date"]: r["weight"] for r in prof if r["weight"]}
+
+        def recent(a: date, b: date):
+            cur, _ = profile_data.latest(prof, b.isoformat(), a.isoformat())
+            return cur["weight"] if cur else ""
         out: dict[str, str] = {}
 
         rows = [["날짜", "요일", "운동", "운동수", "운동시간(분)", "러닝(km)", "세트", "부하",
-                 "수면(h)", "수면점수", "HRV", "안정시심박"]]
-        for d in reversed(hv.day_rows(db, first.isoformat(), last.isoformat())):
+                 "수면(h)", "수면점수", "HRV", "안정시심박", "체중(kg)"]]
+        drows = hv.day_rows(db, first.isoformat(), last.isoformat())
+        have = {d["date"] for d in drows}
+        for k in wday:                                       # 체중만 잰 날도 한 줄
+            if k not in have and first.isoformat() <= k <= last.isoformat():
+                drows.append({"date": k, "weekday": hv.WEEKDAYS[date.fromisoformat(k).weekday()], "acts": [],
+                              "sleepH": None, "sleepScore": None, "hrv": None, "restHr": None})
+        drows.sort(key=lambda d: d["date"])
+        for d in reversed(drows):
             acts = d["acts"]
             rows.append([d["date"], d["weekday"], " / ".join(f"{a['type']} {a['min']}분" for a in acts) or "휴식",
                          len(acts), sum(a["min"] for a in acts),
                          round(sum(a["km"] or 0 for a in acts if a["type"] == "러닝"), 1),
                          sum(a["sets"] or 0 for a in acts), sum(a["load"] or 0 for a in acts),
-                         d["sleepH"], d["sleepScore"], d["hrv"], d["restHr"]])
+                         d["sleepH"], d["sleepScore"], d["hrv"], d["restHr"], wday.get(d["date"], "")])
         out["days.csv"] = _csv(rows)
 
         cols = [r[1] for r in db.execute("PRAGMA table_info(activities)")]
@@ -84,22 +98,22 @@ def build(db_path: Path, data_root: Path, corr_root: Path, names_path: Path, tod
             "SELECT * FROM activities ORDER BY start_local DESC")])
 
         wcols = _weight_cols(subs)
-        rows = [["주", "시작", "끝"] + PERIOD_COLS + wcols]
+        rows = [["주", "시작", "끝"] + PERIOD_COLS + ["체중(최근)"] + wcols]
         d = hv.week_start(first)
         while d <= last:
             e = d + timedelta(days=6)
             w = wk.weight_summary(data_root, corr_root, d, e, names_path)
-            rows.insert(1, [wk.week_key(d), d.isoformat(), e.isoformat()] + _period_row(db, d, e) + _weight_vals(w, subs))
+            rows.insert(1, [wk.week_key(d), d.isoformat(), e.isoformat()] + _period_row(db, d, e) + [recent(d, e)] + _weight_vals(w, subs))
             d = e + timedelta(days=1)
         out["weeks.csv"] = _csv(rows)
 
-        rows = [["월", "시작", "끝"] + PERIOD_COLS + wcols]
+        rows = [["월", "시작", "끝"] + PERIOD_COLS + ["체중(최근)"] + wcols]
         d = first.replace(day=1)
         while d <= last:
             nxt = (d.replace(day=28) + timedelta(days=4)).replace(day=1)
             e = nxt - timedelta(days=1)
             w = wk.weight_summary(data_root, corr_root, d, e, names_path)
-            rows.insert(1, [d.strftime("%Y-%m"), d.isoformat(), e.isoformat()] + _period_row(db, d, e) + _weight_vals(w, subs))
+            rows.insert(1, [d.strftime("%Y-%m"), d.isoformat(), e.isoformat()] + _period_row(db, d, e) + [recent(d, e)] + _weight_vals(w, subs))
             d = nxt
         out["months.csv"] = _csv(rows)
         return out

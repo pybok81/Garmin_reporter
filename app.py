@@ -31,6 +31,7 @@ import history_db
 import history_view
 import weekly_report as wk
 import export_csv
+import profile_data
 from garmin_report import NOTE_RE, load_names, weight_kg
 
 ROOT = Path(__file__).resolve().parent
@@ -298,8 +299,10 @@ def write_week(key: str) -> str | None:
     with FILE_LOCK:
         old_bytes = path.read_bytes() if path.is_file() else None
         old = old_bytes.decode("utf-8") if old_bytes is not None else None
+        a, b = wk.week_range(key)
         text = wk.build(db_path(), key, old, date.today(), data_root=CFG["data"], corr_root=CFG["root"],
-                        names_path=ROOT / "names.toml")
+                        names_path=ROOT / "names.toml",
+                        profile_line=profile_data.line(profile_data.load(CFG["root"]), b.isoformat(), a.isoformat()))
         if text is None:
             return None
         if old is not None and old.replace("\r\n", "\n") == text:
@@ -324,6 +327,37 @@ def csv_export() -> int:
     """보관 폴더의 export/ 에 days·activities·weeks·months CSV를 쓴다 (바뀐 파일만). 쓴 개수."""
     files = export_csv.build(db_path(), CFG["data"], CFG["root"], ROOT / "names.toml", date.today())
     return export_csv.write_all(CFG["root"] / "export", files) if files else 0
+
+
+def api_profile_get() -> dict:
+    return {"rows": profile_data.load(CFG["root"]), "path": str(profile_data.path(CFG["root"]))}
+
+
+def api_profile_save(body: dict) -> dict:
+    """체중·키 한 줄 저장(같은 날짜면 바꿈). delete 가 참이면 그 날짜 줄을 지운다. 그 주의 주간 리포트와 CSV도 갱신."""
+    day = body.get("date")
+    if not valid_day(day):
+        raise ApiError(400, "날짜 형식이 올바르지 않습니다")
+    with FILE_LOCK:
+        if body.get("delete"):
+            profile_data.remove(CFG["root"], day)
+        else:
+            w, h, memo = body.get("weight"), body.get("height"), body.get("memo") or ""
+            w = float(w) if isinstance(w, (int, float)) else None
+            h = float(h) if isinstance(h, (int, float)) else None
+            if w is None and h is None:
+                raise ApiError(400, "체중이나 키를 입력하세요")
+            if (w is not None and not 20 <= w <= 300) or (h is not None and not 100 <= h <= 250):
+                raise ApiError(400, "체중(20~300kg)·키(100~250cm) 범위를 확인하세요")
+            if not isinstance(memo, str) or len(memo) > 200 or "\n" in memo:
+                raise ApiError(400, "메모는 한 줄 200자까지입니다")
+            profile_data.upsert(CFG["root"], day, w, h, memo.strip())
+        if db_path().is_file():
+            k = wk.week_key(date.fromisoformat(day))
+            if report_path(k).is_file():
+                write_week(k)
+            csv_export()
+    return api_profile_get()
 
 
 def api_weeks_rebuild(body: dict) -> dict:
@@ -840,6 +874,10 @@ def compose_ai_text(day: str, question: str, with_plan: bool, with_ref: bool, gr
     if not rp.is_file():
         raise ApiError(404, "리포트가 없습니다")
     parts = [question.strip() or "이 날 훈련을 평가해 줘", ""]
+    upto = wk.week_range(day)[1].isoformat() if wk.valid_week(day) else day
+    pl = profile_data.line(profile_data.load(CFG["root"]), upto)
+    if pl:
+        parts += ["## 프로필", f"- {pl}", ""]
     for kind, flag, title in (("plan", with_plan, "## 현재 훈련 방향·계획"), ("reference", with_ref, "## 참고 사전")):
         names = doc_names(kind) if flag else []
         if names:
@@ -1315,6 +1353,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(200, api_inbox_status())
                 elif url.path == "/api/settings":
                     self._json(200, api_settings_get())
+                elif url.path == "/api/profile":
+                    self._json(200, api_profile_get())
                 else:
                     raise ApiError(404, "없는 주소입니다")
             else:
@@ -1329,6 +1369,7 @@ class Handler(BaseHTTPRequestHandler):
                     "/api/upload": api_upload,
                     "/api/report/rebuild": api_rebuild,
                     "/api/weeks/rebuild": api_weeks_rebuild,
+                    "/api/profile": api_profile_save,
                     "/api/garmin/sync": api_sync,
                     "/api/settings": api_settings_set,
                     "/api/snapshot": lambda body: make_snapshot(),

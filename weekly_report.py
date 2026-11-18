@@ -213,7 +213,7 @@ def _row(label, cur, prev, unit="", dg=1):
 
 
 def build(db_path: Path, key: str, existing: str | None, today: date, *, data_root: Path | None = None,
-          corr_root: Path | None = None, names_path: Path | None = None) -> str | None:
+          corr_root: Path | None = None, names_path: Path | None = None, profile_line: str = "") -> str | None:
     """주간 리포트 마크다운. DB가 없으면 None. existing 은 기존 파일 내용(메모 보존용)."""
     start, end = week_range(key)
     db = hv.connect_ro(db_path)
@@ -232,7 +232,10 @@ def build(db_path: Path, key: str, existing: str | None, today: date, *, data_ro
     L = [f"# {key} ({start:%m-%d} ~ {end:%m-%d}) 주간 리포트", ""]
     if end >= today:
         L += [f"> ⚠️ 진행 중인 주입니다. {today.isoformat()} 기준으로 만든 내용이고, 주가 끝난 뒤 다시 만들면 갱신됩니다.", ""]
-    L += [f"기간: {a} ~ {b} · 비교: {ps.isoformat()} ~ {pe.isoformat()} (전주) · 심박은 손목 센서 기준", "",
+    L += [f"기간: {a} ~ {b} · 비교: {ps.isoformat()} ~ {pe.isoformat()} (전주) · 심박은 손목 센서 기준", ""]
+    if profile_line:
+        L += [f"프로필: {profile_line}", ""]
+    L += [
           "## 주간 요약", "", "| 항목 | 이번 주 | 전주 | 차이 |", "|---|---|---|---|",
           f"| 운동 | {cur['sessions']}회 / {cur['activeDays']}일 | {prev['sessions']}회 / {prev['activeDays']}일 | "
           f"{cur['sessions'] - prev['sessions']:+d}회 |",
